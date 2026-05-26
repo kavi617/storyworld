@@ -1,0 +1,16 @@
+# FastAPI Backend
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+python-multipart>=0.0.12
+
+# OpenAI GPT-4
+openai>=1.55.0
+
+# Speech-to-Text (Whisper)
+openai-whisper>=20231117
+imageio-ffmpeg>=0.4.9
+
+# Text-to-Speech (Edge TTS - Free Tamil voice)
+edge-tts>=6.1.9

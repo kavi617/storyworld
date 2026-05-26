@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="ta">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>சோழ உலகம் - Chola World</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Noto Sans Tamil', Arial, sans-serif;
+        }
+        canvas { display: block; }
+        
+        /* Gaming Style Main Menu */
+        #mainMenu {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: url('Theme/temple-background.jpg') center/cover no-repeat, #0a0a0a;
+            background-size: cover;
+            background-position: center;
+            display: flex; align-items: center; justify-content: center; z-index: 1000;
+            overflow: hidden;
+        }
+        
+        /* Dark overlay for readability */
+        #mainMenu::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1;
+        }
+        
+        #mainMenu.hidden { display: none; }
+        
+        .menu-header-bar {
+            display: none;
+        }
+        
+        .menu-logo {
+            display: none;
+        }
+        
+        .return-btn {
+            display: none;
+        }
+        
+        .menu-container {
+            position: relative;
+            z-index: 10;
+            max-width: 900px;
+            width: 90%;
+            background: rgba(10, 10, 10, 0.95);
+            border: 3px solid #FFD700;
+            padding: 0;
+        }
+        
+        .sidebar {
+            display: none;
+        }
+        
+        .sidebar-item {
+            display: none;
+        }
+        .sidebar-item.active {
+            display: none;
+        }
+        .sidebar-item:hover:not(.active) {
+            display: none;
+        }
+        
+        /* Header Section */
+        .menu-header {
+            background: rgba(0, 0, 0, 0.8);
+            padding: 25px 40px;
+            border-bottom: 2px solid #FFD700;
+            border-left: 6px solid #FFD700;
+        }
+        
+        .menu-title {
+            font-size: 36px;
+            font-weight: 700;
+            color: #FFD700;
+            letter-spacing: 3px;
+            margin: 0;
+        }
+        
+        .main-panel {
+            flex: 1;
+            background: transparent;
+            border: none;
+            padding: 0;
+            box-shadow: none;
+        }
+        
+        .settings-section {
+            padding: 30px 40px;
+        }
+        
+        .settings-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 30px;
+            background: rgba(0, 0, 0, 0.6);
+            border-left: 6px solid #FFD700;
+            margin-bottom: 20px;
+        }
+        
+        .setting-label {
+            font-size: 22px;
+            color: #FFD700;
+            font-weight: 600;
+        }
+        
+        .toggle-btn {
+            width: 60px;
+            height: 60px;
+            border: 2px solid #FFD700;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #FFD700;
+        }
+        .toggle-btn.active {
+            background: #FFD700;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
+            color: #000;
+        }
+        .toggle-btn.inactive {
+            background: rgba(100, 100, 100, 0.5);
+            border-color: #666;
+            color: #333;
+        }
+        
+        .player-name input {
+            background: transparent;
+            border: 2px solid rgba(255, 215, 0, 0.6);
+            padding: 12px 20px;
+            font-family: 'Noto Sans Tamil', Arial;
+            font-size: 18px;
+            color: #FFD700;
+            width: 300px;
+        }
+        .player-name input::placeholder {
+            color: rgba(255, 215, 0, 0.4);
+        }
+        .player-name input:focus {
+            outline: none;
+            border-color: #FFD700;
+            box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+        }
+        
+        .world-options {
+            padding: 20px 40px 40px;
+        }
+        
+        .world-btn {
+            width: 100%;
+            padding: 30px 40px;
+            font-size: 32px;
+            font-weight: bold;
+            font-family: 'Noto Sans Tamil', Arial;
+            background: rgba(0, 0, 0, 0.8);
+            border: 3px solid #FFD700;
+            color: #FFD700;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-bottom: 20px;
+            text-align: center;
+            letter-spacing: 2px;
+            text-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
+        }
+        
+        .world-btn:hover {
+            background: rgba(255, 215, 0, 0.1);
+            box-shadow: 0 0 30px rgba(255, 215, 0, 0.4);
+            transform: translateY(-3px);
+        }
+        
+        .world-btn.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            border-color: rgba(139, 69, 19, 0.5);
+            color: #8B7355;
+            text-shadow: none;
+        }
+        .world-btn.disabled:hover {
+            transform: none;
+            box-shadow: none;
+            background: rgba(0, 0, 0, 0.8);
+        }
+        
+        .world-btn .status {
+            font-size: 16px;
+            font-weight: normal;
+            opacity: 0.8;
+            margin-left: 15px;
+        }
+        
+        /* Game UI */
+        #gameUI { display: none; }
+        #gameUI.active { display: block; }
+        
+        #instructions {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8); color: white; padding: 30px;
+            border-radius: 10px; text-align: center; cursor: pointer;
+        }
+        #instructions.hidden { display: none; }
+        
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 4px; height: 4px; background: white; border-radius: 50%;
+            pointer-events: none; display: none;
+        }
+        #crosshair.active { display: block; }
+        
+        #fps {
+            position: absolute; top: 10px; right: 10px; background: rgba(0, 0, 0, 0.7);
+            color: #0f0; padding: 8px 12px; border-radius: 5px;
+            font-family: 'Courier New', monospace; font-size: 14px; font-weight: bold; pointer-events: none;
+        }
+        
+        /* NPC Tooltip */
+        #npcTooltip {
+            position: absolute;
+            bottom: 150px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.9);
+            border: 3px solid #FFD700;
+            padding: 20px 40px;
+            border-radius: 10px;
+            color: #FFD700;
+            font-family: 'Noto Sans Tamil', Arial;
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            pointer-events: none;
+            display: none;
+            box-shadow: 0 0 30px rgba(255, 215, 0, 0.6);
+            animation: tooltipPulse 1.5s ease-in-out infinite;
+        }
+        
+        #npcTooltip.visible {
+            display: block;
+        }
+        
+        #npcTooltip .npc-name {
+            font-size: 20px;
+            color: #B8860B;
+            margin-bottom: 10px;
+        }
+        
+        #npcTooltip .key-prompt {
+            font-size: 28px;
+            color: #FFD700;
+            text-shadow: 0 0 15px rgba(255, 215, 0, 0.8);
+        }
+        
+        #npcTooltip .key-icon {
+            display: inline-block;
+            background: #FFD700;
+            color: #000;
+            padding: 8px 16px;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 0 8px;
+            box-shadow: 0 4px 0 #B8860B;
+        }
+        
+        @keyframes tooltipPulse {
+            0%, 100% { transform: translateX(-50%) scale(1); }
+            50% { transform: translateX(-50%) scale(1.05); }
+        }
+        
+        /* Voice Chat Tooltip (appears after intro) */
+        #voiceChatTooltip {
+            position: absolute;
+            bottom: 150px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 100, 0, 0.9);
+            border: 3px solid #00FF00;
+            padding: 20px 40px;
+            border-radius: 10px;
+            color: #00FF00;
+            font-family: 'Noto Sans Tamil', Arial;
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            pointer-events: none;
+            display: none;
+            box-shadow: 0 0 30px rgba(0, 255, 0, 0.6);
+            animation: voicePulse 2s ease-in-out infinite;
+        }
+        
+        #voiceChatTooltip.visible {
+            display: block;
+        }
+        
+        #voiceChatTooltip .key-icon {
+            display: inline-block;
+            background: #00FF00;
+            color: #000;
+            padding: 8px 16px;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 0 8px;
+            box-shadow: 0 4px 0 #008800;
+        }
+        
+        @keyframes voicePulse {
+            0%, 100% { transform: translateX(-50%) scale(1); box-shadow: 0 0 30px rgba(0, 255, 0, 0.6); }
+            50% { transform: translateX(-50%) scale(1.05); box-shadow: 0 0 50px rgba(0, 255, 0, 0.9); }
+        }
+        
+        /* Voice Recording Indicator - Modern Glassmorphic */
+        #voiceRecordingIndicator {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(220, 38, 38, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 14px 28px;
+            border-radius: 50px;
+            color: #FFF;
+            font-size: 15px;
+            font-weight: 600;
+            display: none;
+            box-shadow: 
+                0 8px 32px rgba(220, 38, 38, 0.4),
+                0 0 0 1px rgba(255, 255, 255, 0.1);
+            z-index: 2000;
+        }
+        
+        #voiceRecordingIndicator.active {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .recording-dot {
+            width: 12px;
+            height: 12px;
+            background: #FF0000;
+            border-radius: 50%;
+            animation: dotPulse 1s ease-in-out infinite;
+        }
+        
+        @keyframes recordingPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        @keyframes dotPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.3); }
+        }
+        
+        /* Voice Processing Indicator */
+        /* Voice Processing Indicator - Modern Glassmorphic */
+        #voiceProcessingIndicator {
+            position: fixed;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(251, 146, 60, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 14px 28px;
+            border-radius: 50px;
+            color: #FFF;
+            font-size: 15px;
+            font-weight: 600;
+            display: none;
+            box-shadow: 
+                0 8px 32px rgba(251, 146, 60, 0.4),
+                0 0 0 1px rgba(255, 255, 255, 0.1);
+            z-index: 2000;
+        }
+        
+        #voiceProcessingIndicator.active {
+            display: block;
+        }
+        
+        /* RPG-Style Dialogue HUD - Right Middle Position, Optimized */
+        #conversationLog {
+            position: fixed;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 420px;
+            max-height: 500px;
+            background: rgba(15, 23, 42, 0.92);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 215, 0, 0.25);
+            border-radius: 16px;
+            padding: 0;
+            overflow: hidden;
+            display: none;
+            font-family: 'Noto Sans Tamil', Arial;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+            z-index: 1000;
+        }
+        
+        #conversationLog.visible {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        #conversationLog .log-header {
+            background: linear-gradient(135deg, rgba(255, 215, 0, 0.12) 0%, rgba(218, 165, 32, 0.12) 100%);
+            padding: 14px 20px;
+            color: #fbbf24;
+            font-weight: 700;
+            font-size: 14px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 215, 0, 0.2);
+            flex-shrink: 0;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        #conversationLog .log-header::before {
+            content: '👑';
+            font-size: 16px;
+        }
+        
+        #conversationLog .log-messages {
+            flex: 1;
+            padding: 16px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            min-height: 200px;
+            max-height: 420px;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255, 215, 0, 0.3) rgba(255, 255, 255, 0.05);
+            scroll-behavior: smooth;
+            background: transparent;
+        }
+        
+        #conversationLog .log-messages::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        #conversationLog .log-messages::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 3px;
+        }
+        
+        #conversationLog .log-messages::-webkit-scrollbar-thumb {
+            background: rgba(255, 215, 0, 0.3);
+            border-radius: 3px;
+            transition: background 0.3s;
+        }
+        
+        #conversationLog .log-messages::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 215, 0, 0.5);
+        }
+        
+        .conversation-message {
+            margin-bottom: 16px;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+        
+        .message-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(218, 165, 32, 0.2));
+            border: 2px solid rgba(255, 215, 0, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+        
+        .player-message .message-avatar {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(37, 99, 235, 0.2));
+            border-color: rgba(59, 130, 246, 0.3);
+        }
+        
+        .message-content {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .message-bubble {
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 10px 14px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+        
+        .player-message .message-bubble {
+            background: rgba(37, 99, 235, 0.15);
+            border-color: rgba(59, 130, 246, 0.2);
+        }
+        
+        .npc-message .message-bubble {
+            background: rgba(255, 215, 0, 0.08);
+            border-color: rgba(255, 215, 0, 0.15);
+        }
+        
+        .system-message {
+            background: rgba(100, 116, 139, 0.15);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 10px;
+            text-align: center;
+            padding: 8px 14px;
+            margin: 12px 40px;
+            font-size: 12px;
+            color: #94a3b8;
+            font-weight: 500;
+        }
+        
+        .system-message::before {
+            content: '⏹️';
+            margin-right: 8px;
+        }
+        
+        .message-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 6px;
+        }
+        
+        .message-name {
+            font-size: 12px;
+            font-weight: 700;
+            color: #fbbf24;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+            letter-spacing: 0.3px;
+        }
+        
+        .player-message .message-name {
+            color: #60a5fa;
+        }
+        
+        .message-role {
+            font-size: 10px;
+            color: rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2px 8px;
+            border-radius: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .message-text {
+            font-size: 14px;
+            color: #e2e8f0;
+            line-height: 1.6;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+        }
+        
+        .player-message .message-text {
+            color: #dbeafe;
+        }
+        
+        .npc-message .message-text {
+            color: #fef3c7;
+            font-weight: 500;
+        }
+        
+        /* Simplified hover effect */
+        .message-bubble:hover {
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+        
+        /* Responsive design for conversation log */
+        @media (max-width: 768px) {
+            #conversationLog {
+                width: calc(100vw - 30px);
+                right: 15px;
+                top: 80px;
+                transform: none;
+                max-height: calc(100vh - 100px);
+            }
+            
+            #conversationLog .log-messages {
+                max-height: calc(100vh - 180px);
+                padding: 12px;
+            }
+            
+            .message-avatar {
+                width: 32px;
+                height: 32px;
+                font-size: 16px;
+            }
+        }
+        
+        @media (max-height: 600px) {
+            #conversationLog {
+                max-height: 400px;
+            }
+            
+            #conversationLog .log-messages {
+                max-height: 320px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Gaming Style Main Menu -->
+    <div id="mainMenu">
+        <div class="menu-container">
+            <!-- Header -->
+            <div class="menu-header">
+                <h1 class="menu-title">ஒலி விளைவுகள்</h1>
+            </div>
+            
+            <!-- Settings Section -->
+            <div class="settings-section">
+                <div class="settings-row">
+                    <span class="setting-label">ஒலி விளைவுகள்</span>
+                    <div class="toggle-btn active" id="soundToggle" onclick="toggleSound()">🔊</div>
+                </div>
+                
+                <div class="settings-row player-name">
+                    <span class="setting-label">வீரர் பெயர்:</span>
+                    <input type="text" id="playerNameInput" placeholder="உங்கள் பெயர்" maxlength="20">
+                </div>
+            </div>
+            
+            <!-- World Selection -->
+            <div class="world-options">
+                <button class="world-btn" onclick="startWorld('nature')">இயற்கை</button>
+                <button class="world-btn disabled" onclick="startWorld('architecture')">
+                    கட்டிடக்கலை<span class="status">(விரைவில்)</span>
+                </button>
+                <button class="world-btn disabled" onclick="startWorld('water')">
+                    நீர் மேலாண்மை<span class="status">(விரைவில்)</span>
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Game UI (hidden initially) -->
+    <div id="gameUI">
+        <div id="instructions">
+            <h2>Character Controller</h2>
+            <p><strong>Click anywhere to start</strong></p>
+            <p>WASD - Move forward/back/strafe</p>
+            <p>Mouse - Look around (rotate camera)</p>
+            <p>Mouse Wheel - Zoom in/out</p>
+            <p>Shift - Run</p>
+            <p>A/D - Turn character left/right</p>
+            <p>ESC - Release mouse</p>
+        </div>
+        <div id="crosshair"></div>
+        <div id="fps">FPS: --</div>
+        
+        <!-- NPC Tooltip -->
+        <div id="npcTooltip">
+            <div class="npc-name">இராஜராஜ சோழன்</div>
+            <div class="key-prompt">
+                Press <span class="key-icon">E</span> to listen
+            </div>
+        </div>
+        
+        <!-- Voice Chat Tooltip (shows after intro) -->
+        <div id="voiceChatTooltip">
+            <div class="npc-name">இராஜராஜ சோழன்</div>
+            <div class="key-prompt">
+                <span class="key-icon">V</span> பேச <span style="opacity: 0.7; margin: 0 8px;">•</span> <span class="key-icon">X</span> நிறுத்து
+            </div>
+        </div>
+        
+        <!-- Voice Recording Indicator -->
+        <div id="voiceRecordingIndicator">
+            <div class="recording-dot"></div>
+            <span>Recording...</span>
+        </div>
+        
+        <!-- Voice Processing Indicator -->
+        <div id="voiceProcessingIndicator">
+            Processing your message...
+        </div>
+        
+        <!-- RPG Dialogue HUD - Glassmorphism Panel -->
+        <div id="conversationLog">
+            <div class="log-header">இராஜராஜ சோழன் உடன் உரையாடல்</div>
+            <div class="log-messages">
+                <!-- Messages will be added here dynamically -->
+            </div>
+        </div>
+    </div>
+    
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    
+    <script>
+        let soundEnabled = true;
+        let selectedWorld = null;
+        let playerName = '';
+        
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            const btn = document.getElementById('soundToggle');
+            if (soundEnabled) {
+                btn.classList.remove('inactive');
+                btn.classList.add('active');
+                btn.textContent = '🔊';
+            } else {
+                btn.classList.remove('active');
+                btn.classList.add('inactive');
+                btn.textContent = '🔇';
+            }
+        }
+        
+        function startWorld(worldType) {
+            if (worldType !== 'nature') {
+                alert('இந்த உலகம் இன்னும் கட்டுமானத்தில் உள்ளது!\n(This world is under construction!)');
+                return;
+            }
+            
+            playerName = document.getElementById('playerNameInput').value || 'வீரர்';
+            selectedWorld = worldType;
+            
+            // Hide menu, show game
+            document.getElementById('mainMenu').classList.add('hidden');
+            document.getElementById('gameUI').classList.add('active');
+            
+            // Store config for game
+            window.gameConfig = {
+                world: worldType,
+                soundEnabled: soundEnabled,
+                playerName: playerName
+            };
+            
+            // Load the game
+            const script = document.createElement('script');
+            script.type = 'module';
+            script.src = 'main.js';
+            document.body.appendChild(script);
+        }
+    </script>
+    
+    <!-- Voice Conversation System (loads before main.js needs it) -->
+    <script src="npc_voice_conversation.js"></script>
+</body>
+</html>
