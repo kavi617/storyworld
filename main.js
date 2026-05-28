@@ -1203,7 +1203,53 @@ setupAudio();
 
 // ==================== NPC CLICK DETECTION ====================
 // Backend URL - update if deploying to production
-const BACKEND_URL = "http://localhost:8000";
+// This value can be overridden at runtime by placing a ".env" file
+// at the web root containing a line like:
+// BACKEND_URL=http://localhost:8000
+// Alternatively, set `window.__BACKEND_URL__` before this script runs.
+let BACKEND_URL = "http://localhost:8000";
+
+// Try to load runtime overrides from /.env (if served by dev server)
+(function loadBackendUrlFromEnv() {
+  try {
+    if (window.__BACKEND_URL__) {
+      BACKEND_URL = window.__BACKEND_URL__;
+      console.log(
+        "Using BACKEND_URL from window.__BACKEND_URL__:",
+        BACKEND_URL,
+      );
+      return;
+    }
+
+    fetch("/.env")
+      .then((res) => {
+        if (!res.ok) throw new Error(".env not found");
+        return res.text();
+      })
+      .then((text) => {
+        const lines = text.split(/\r?\n/);
+        for (const raw of lines) {
+          const line = raw.trim();
+          if (!line || line.startsWith("#")) continue;
+          const idx = line.indexOf("=");
+          if (idx === -1) continue;
+          const key = line.slice(0, idx).trim();
+          const val = line.slice(idx + 1).trim();
+          if (key === "BACKEND_URL" && val) {
+            BACKEND_URL = val;
+            console.log("Loaded BACKEND_URL from /.env:", BACKEND_URL);
+            break;
+          }
+        }
+      })
+      .catch((err) => {
+        // Silent fallback to default
+        console.log("No /.env loaded (using default BACKEND_URL)");
+      });
+  } catch (e) {
+    console.warn("Error loading /.env for BACKEND_URL", e);
+  }
+})();
 
 // Raycaster for detecting NPC clicks
 const raycaster = new THREE.Raycaster();
