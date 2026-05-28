@@ -1,0 +1,8 @@
+name = "storyworld-proxy"
+main = "worker/index.js"
+compatibility_date = "2026-05-28"
+type = "esm"
+
+# Optional: configure scheduled cron triggers here (example)
+# [triggers]
+# crons = ["0 */6 * * *"]
