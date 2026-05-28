@@ -15,7 +15,14 @@ export const player_entity = (() => {
       this._decceleration = new THREE.Vector3(-0.0005, -0.0001, -5.0);
       this._acceleration = new THREE.Vector3(1, 0.125, 50.0);
       this._velocity = new THREE.Vector3(0, 0, 0);
+      this._isJumping = false;
+      this._jumpVelocity = 0;
+      this._gravity = -25; // Gravity acceleration
+      this._jumpStrength = 10; // Initial jump velocity
+      this._groundLevel = 0; // Will be updated based on terrain
       this._position = new THREE.Vector3();
+      this._raycaster = new THREE.Raycaster();
+      this._collisionDistance = 3; // Increased detection distance to prevent phasing
       
       this._mixer = null;
       this._idleAction = null;
@@ -37,7 +44,23 @@ export const player_entity = (() => {
       loader.load('characters/main character/Remy.fbx', (fbx) => {
         this._target = fbx;
         this._target.scale.setScalar(0.01); // Scale down (adjust as needed)
-        this._target.position.set(0, 0, 0);
+        
+        // Set spawn position based on world type
+        const gameConfig = window.gameConfig || { world: 'nature' };
+        if (gameConfig.world === 'architecture') {
+          // Spawn on the main kolam outside the compound entrance
+          this._target.position.set(0, 0, -115);
+          this._target.rotation.y = 0; // Face toward +Z (toward temple)
+          console.log('🏗️ Player spawned on kolam at (0, 0, -115) facing temple');
+        } else if (gameConfig.world === 'water') {
+          // Spawn on river pathway to start exploration
+          this._target.position.set(26.5, 1.5, -70);  // On pathway near river start
+          this._target.rotation.y = 0;  // Facing downstream toward dam
+          console.log('💧 Player spawned on river pathway at (26.5, 1.5, -70)');
+        } else {
+          this._target.position.set(0, 0, 0);
+        }
+        
         this._params.scene.add(this._target);
         
         // Setup shadows
@@ -79,6 +102,12 @@ export const player_entity = (() => {
         this._parent.SetQuaternion(this._target.quaternion);
         
         console.log('Remy character loaded with idle pose');
+        
+        // Update loading state
+        if (window.loadingState) {
+            window.loadingState.player = true;
+            window.updateLoadingProgress();
+        }
         
         // Now load the walking animation
         this._LoadWalkingAnimation();
@@ -134,7 +163,17 @@ export const player_entity = (() => {
       const material = new THREE.MeshStandardMaterial({ color: 0xff6347 });
       this._target = new THREE.Mesh(geometry, material);
       this._target.castShadow = true;
-      this._target.position.set(0, 1, 0);
+      
+      // Set spawn position based on world type
+      const gameConfig = window.gameConfig || { world: 'nature' };
+      if (gameConfig.world === 'architecture') {
+        this._target.position.set(0, 1, 80);
+      } else if (gameConfig.world === 'water') {
+        this._target.position.set(26.5, 2, -70);  // On river pathway
+      } else {
+        this._target.position.set(0, 1, 0);
+      }
+      
       this._params.scene.add(this._target);
       
       this._position.copy(this._target.position);
@@ -146,6 +185,11 @@ export const player_entity = (() => {
 
     Update(timeInSeconds) {
       if (!this._target) {
+        return;
+      }
+      
+      // Don't process input until game is fully loaded
+      if (!window.gameLoaded) {
         return;
       }
 
@@ -201,6 +245,25 @@ export const player_entity = (() => {
       if (input._keys.shift) {
         acc.multiplyScalar(2.0);
       }
+      
+      // Jump mechanic
+      if (input._keys.space && !this._isJumping && controlObject.position.y <= this._groundLevel + 0.2) {
+        this._isJumping = true;
+        this._jumpVelocity = this._jumpStrength;
+      }
+      
+      // Apply gravity and jump
+      if (this._isJumping || controlObject.position.y > this._groundLevel) {
+        this._jumpVelocity += this._gravity * timeInSeconds;
+        controlObject.position.y += this._jumpVelocity * timeInSeconds;
+        
+        // Land on ground
+        if (controlObject.position.y <= this._groundLevel) {
+          controlObject.position.y = this._groundLevel;
+          this._isJumping = false;
+          this._jumpVelocity = 0;
+        }
+      }
 
       if (input._keys.forward) {
         velocity.z += acc.z * timeInSeconds;
@@ -236,8 +299,103 @@ export const player_entity = (() => {
       forward.multiplyScalar(velocity.z * timeInSeconds);
 
       const pos = controlObject.position.clone();
-      pos.add(forward);
-      pos.add(sideways);
+      const oldY = pos.y; // Store Y before movement
+      
+      const moveVector = new THREE.Vector3();
+      moveVector.add(forward);
+      moveVector.add(sideways);
+      
+      // ═══════════════════════════════════════════════════════════════
+      // ENHANCED COLLISION DETECTION - Multiple raycasts
+      // ═══════════════════════════════════════════════════════════════
+      
+      let canMove = true;
+      
+      // Horizontal collision: only check wall colliders (NOT temple mesh geometry)
+      // This allows walking up stairs freely while walls prevent phasing
+      if (window.getCollisionMeshes && typeof window.getCollisionMeshes === 'function') {
+        const wallMeshes = window.getCollisionMeshes();
+        
+        if (wallMeshes && wallMeshes.length > 0 && moveVector.length() > 0.01) {
+          const direction = moveVector.clone().normalize();
+          direction.y = 0;
+          
+          // Check from foot, mid, and upper body
+          const rayOrigins = [
+            new THREE.Vector3(controlObject.position.x, controlObject.position.y + 0.3, controlObject.position.z),
+            new THREE.Vector3(controlObject.position.x, controlObject.position.y + 1.0, controlObject.position.z),
+          ];
+          
+          for (const origin of rayOrigins) {
+            this._raycaster.set(origin, direction);
+            const intersects = this._raycaster.intersectObjects(wallMeshes, true); // RECURSIVE for nested meshes
+            if (intersects.length > 0 && intersects[0].distance < this._collisionDistance) {
+              canMove = false;
+              break;
+            }
+          }
+        }
+      }
+      
+      // Apply movement if allowed
+      if (canMove) {
+        pos.add(moveVector);
+      }
+      
+      // ═══════════════════════════════════════════════════════════════
+      // GROUND DETECTION - Use groundMeshes (includes temple stairs)
+      // ═══════════════════════════════════════════════════════════════
+      
+      // Cast downward from above to detect ground/stairs
+      const downRay = new THREE.Raycaster(
+        new THREE.Vector3(pos.x, pos.y + 5, pos.z),
+        new THREE.Vector3(0, -1, 0)
+      );
+      
+      let groundDetected = false;
+      
+      // Prefer getGroundMeshes (includes temple stairs), fallback to getCollisionMeshes
+      const groundMeshList = (window.getGroundMeshes && window.getGroundMeshes())
+        || (window.getCollisionMeshes && window.getCollisionMeshes())
+        || [];
+      
+      if (groundMeshList.length > 0) {
+        const groundIntersects = downRay.intersectObjects(groundMeshList, true); // RECURSIVE to catch nested meshes
+        
+        if (groundIntersects.length > 0) {
+          groundDetected = true;
+          const groundY = groundIntersects[0].point.y;
+          const heightDiff = groundY - pos.y; // positive = surface is above player
+          
+          if (!this._isJumping) {
+            // Allow climbing stairs - increased threshold to 5 units for temple stairs
+            // Always snap DOWN freely (falling off ledges)
+            if (heightDiff <= 5.0) {
+              pos.y = groundY;
+              this._groundLevel = groundY;
+            }
+            // If heightDiff > 5.0, surface is too high (wall/roof) — ignore it
+          } else {
+            // While jumping, check landing
+            if (pos.y <= groundY && heightDiff <= 0) {
+              pos.y = groundY;
+              this._groundLevel = groundY;
+              this._isJumping = false;
+              this._jumpVelocity = 0;
+            }
+          }
+        }
+      }
+      
+      // Fallback: use Y=0 if no ground detected
+      if (!groundDetected && !this._isJumping) {
+        if (pos.y > 0.5) {
+          this._isJumping = true; // Start falling
+        } else {
+          pos.y = 0;
+          this._groundLevel = 0;
+        }
+      }
 
       // Force the position (ignore any root motion from animation)
       controlObject.position.copy(pos);

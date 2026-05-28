@@ -47,24 +47,126 @@ import { entity_manager } from './entity-manager.js';
 import { player_entity } from './player-entity.js';
 import { player_input } from './player-input.js';
 import { third_person_camera } from './third-person-camera.js';
+import { initTempleWorld, getNPCSpawnPositions, getCollisionMeshes, getGroundMeshes } from './architecture_world.js';
+import { initWaterWorld, animateWater, getCollisionMeshes as getWaterCollisionMeshes, getGroundMeshes as getWaterGroundMeshes } from './water-management-world.js';
 
 console.log('Imports loaded successfully');
 
-// Check game configuration from menu
+// Check game configuration from menu (must be first!)
 const gameConfig = window.gameConfig || { world: 'nature', soundEnabled: true, playerName: 'வீரர்' };
 console.log('⚡ ULTRA PERFORMANCE MODE: 2-3 objects/chunk, 90% grass, 3% trees, lag-free');
 console.log(`🎮 World: ${gameConfig.world} | Player: ${gameConfig.playerName} | Sound: ${gameConfig.soundEnabled ? 'ON' : 'OFF'}`);
 
+// ═══════════════════════════════════════════════════════════════════════════
+// LOADING SCREEN MANAGEMENT (Architecture world only)
+// ═══════════════════════════════════════════════════════════════════════════
+const loadingScreen = document.getElementById('loadingScreen');
+const loadingProgress = document.getElementById('loadingProgress');
+const loadingStatus = document.getElementById('loadingStatus');
+
+let loadingState = {
+    temple: false,
+    player: false,
+    raja: false,
+    ready: false
+};
+
+// For nature and water worlds, temple and raja don't exist, so mark them as loaded
+if (gameConfig.world === 'nature' || gameConfig.world === 'water') {
+    loadingState.temple = true;
+    loadingState.raja = true;
+}
+
+// Expose globally so other modules can update it
+window.loadingState = loadingState;
+
+function updateLoadingProgress() {
+    // Only show loading screen for architecture world
+    if (gameConfig.world !== 'architecture' || !loadingScreen) {
+        // For nature and water worlds, just mark as ready immediately
+        if (gameConfig.world === 'nature' || gameConfig.world === 'water') {
+            window.gameLoaded = true;
+        }
+        return;
+    }
+    
+    const completed = Object.values(loadingState).filter(v => v === true).length;
+    const total = Object.keys(loadingState).length;
+    const percent = (completed / total) * 100;
+    
+    if (loadingProgress) loadingProgress.style.width = percent + '%';
+    
+    // Update status text
+    if (loadingStatus) {
+        if (loadingState.temple && !loadingState.player) {
+            loadingStatus.textContent = 'Loading player...';
+        } else if (loadingState.player && !loadingState.raja) {
+            loadingStatus.textContent = 'Loading Raja Raja Cholan...';
+        } else if (loadingState.raja && !loadingState.ready) {
+            loadingStatus.textContent = 'Almost ready...';
+        }
+    }
+    
+    // All loaded - hide screen quickly
+    if (completed === total - 1) { // All except 'ready'
+        loadingState.ready = true;
+        if (loadingStatus) loadingStatus.textContent = 'Ready! வரவேற்கிறோம்!';
+        
+        setTimeout(() => {
+            loadingScreen.classList.add('hidden');
+            setTimeout(() => {
+                loadingScreen.classList.remove('active');
+                window.gameLoaded = true;
+            }, 500);
+        }, 300);
+    }
+}
+
+// Expose globally
+window.updateLoadingProgress = updateLoadingProgress;
+
+window.gameLoaded = false; // Global flag to prevent interaction during loading
+
+// Stub for chunk system (only used in nature world, but defined globally to prevent errors)
+let updateChunks = () => {}; // No-op by default, will be overridden in nature world
+
+// Expose collision and ground meshes globally for player physics
+// Use appropriate getters based on world type
+if (gameConfig.world === 'water') {
+    window.getCollisionMeshes = getWaterCollisionMeshes;
+    window.getGroundMeshes = getWaterGroundMeshes;
+} else {
+    // Architecture and nature worlds use architecture getters (or empty for nature)
+    window.getCollisionMeshes = getCollisionMeshes;
+    window.getGroundMeshes = getGroundMeshes;
+}
+
 // DEV ONLY: FPS Counter - easily removable
 const fpsElement = document.getElementById('fps');
+// DEV ONLY: Coordinates display - easily removable
+const coordsElement = document.getElementById('coords');
 let lastTime = performance.now();
 let frameCount = 0;
 let fps = 0;
 
 // Scene setup - Bright Daytime Forest (Ultra Performance)
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb); // Bright sky blue (most performant)
-scene.fog = new THREE.Fog(0xd4e8f0, 20, 35); // Tighter fog for better performance
+
+// Set background color based on world type
+if (gameConfig.world === 'architecture') {
+    scene.background = new THREE.Color(0x87ceeb); // Bright daytime sky blue
+} else if (gameConfig.world === 'water') {
+    scene.background = new THREE.Color(0xb0d8f0); // Blueish sky for water world
+} else {
+    scene.background = new THREE.Color(0x87ceeb); // Bright sky blue for nature world
+}
+
+// Fog will be added conditionally based on world type
+if (gameConfig.world === 'nature') {
+    scene.fog = new THREE.Fog(0xd4e8f0, 20, 35); // Tighter fog for forest
+}
+// No fog for architecture and water worlds - clear view
+
 console.log('Scene created');
 
 // Camera
@@ -72,9 +174,24 @@ const camera = new THREE.PerspectiveCamera(
     75,
     window.innerWidth / window.innerHeight,
     0.5, // Increased near plane to prevent clipping issues
-    100 // Reduced far plane for less rendering
+    (gameConfig.world === 'architecture' || gameConfig.world === 'water') ? 500 : 100 // Larger far plane for temple and water worlds
 );
-camera.position.set(0, 10, 15); // Initial position
+
+// Set initial camera position based on world type
+if (gameConfig.world === 'architecture') {
+    // Player spawns at Z=80 facing -Z (toward temple). Camera behind player.
+    camera.position.set(0, 15, 95);
+    camera.lookAt(0, 5, 0);
+    console.log('📍 Camera positioned behind player facing temple');
+} else if (gameConfig.world === 'water') {
+    // Water world - elevated view to see entire water management system
+    camera.position.set(-30, 50, 100);  // Higher view to see all areas
+    camera.lookAt(-40, 1, 120);  // Looking at farmland area
+    console.log('📍 Camera positioned for Kaveri River world');
+} else {
+    // Nature world - default position
+    camera.position.set(0, 10, 15);
+}
 
 // Renderer with ULTRA performance optimizations
 const renderer = new THREE.WebGLRenderer({ 
@@ -90,14 +207,36 @@ document.body.appendChild(renderer.domElement);
 // Enable frustum culling (Minecraft-style optimization)
 camera.matrixAutoUpdate = true;
 
-// Lighting - Bright Daytime Sun (Preview_2.jpg Style)
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.9); // Bright white ambient for vibrant look
-scene.add(ambientLight);
+// Lighting
+if (gameConfig.world === 'architecture') {
+    
+    // Temple world: Even ambient-only daytime — no directional light to avoid bright patches
+    const templeAmbient = new THREE.AmbientLight(0xfff8f0, 0.75); // Reduced — prevents texture overexposure
+    scene.add(templeAmbient);
 
-const directionalLight = new THREE.DirectionalLight(0xffffee, 0.7); // Bright sun
-directionalLight.position.set(50, 80, 30);
-directionalLight.castShadow = false; // Shadows DISABLED for performance
-scene.add(directionalLight);
+     
+} else if (gameConfig.world === 'water') {
+    // Water world - blueish atmosphere with directional light
+    const waterAmbient = new THREE.AmbientLight(0xe0f0ff, 0.7);  // Blueish ambient
+    scene.add(waterAmbient);
+    
+    const waterSun = new THREE.DirectionalLight(0xffffff, 0.8);
+    waterSun.position.set(50, 100, 30);
+    waterSun.castShadow = false;
+    scene.add(waterSun);
+    
+    // Add blue fog for atmospheric depth
+    scene.fog = new THREE.Fog(0xb0d8f0, 50, 200);
+    
+} else {
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.9); // Bright white ambient for vibrant look
+    scene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffee, 0.7); // Bright sun
+    directionalLight.position.set(50, 80, 30);
+    directionalLight.castShadow = false; // Shadows DISABLED for performance
+    scene.add(directionalLight);
+}
 
 // Load Forest Theme 1 Textures (ALL TEXTURES - Random Application)
 const textureLoader = new THREE.TextureLoader();
@@ -111,10 +250,13 @@ function loadTexture(filename) {
     return tex;
 }
 
+
 // Load ground texture (path rocks for dirt path look)
 const groundTexture = loadTexture('Rocks_Diffuse.png');
 groundTexture.wrapS = groundTexture.wrapT = THREE.RepeatWrapping;
 groundTexture.repeat.set(50, 50); // Minimal repeats for best performance
+
+
 
 // Load ALL bark textures (for trees)
 const barkTextures = [
@@ -150,6 +292,134 @@ const rockTextures = [
 ];
 
 console.log('All textures loaded: bark, leaves, vegetation (grass/flowers/mushrooms), rocks');
+
+// Ground plane - Infinite forest floor (Ultra Performance)
+// DISABLED FOR ARCHITECTURE WORLD - Will be added in nature world section only
+/*
+const groundGeometry = new THREE.PlaneGeometry(800, 800); // Smaller plane for better FPS
+const groundMaterial = new THREE.MeshBasicMaterial({
+    map: groundTexture,
+    color: 0xd4b896, // Bright sandy/dirt path color like preview
+    side: THREE.FrontSide // Only visible from above (prevent seeing through from below)
+});
+const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = false;
+scene.add(ground);
+*/
+
+// CLOUD SYSTEM - Dynamic Sky (Performance Optimized)
+// DISABLED FOR ARCHITECTURE WORLD - Will be added in nature world section only
+/*
+const gltfLoader = new GLTFLoader();
+const cloudPath = 'Theme/Clouds Theme/';
+const cloudModels = ['Cloud1.glb', 'Cloud2.glb', 'Cloud3.glb'];
+const loadedClouds = [];
+let cloudsLoaded = 0;
+
+// Load all cloud models
+cloudModels.forEach((cloudFile, index) => {
+    gltfLoader.load(cloudPath + cloudFile, (gltf) => {
+        loadedClouds[index] = gltf.scene;
+        cloudsLoaded++;
+        
+        // Once all clouds loaded, spawn them in sky
+        if (cloudsLoaded === cloudModels.length) {
+            spawnCloudsInSky();
+        }
+    }, undefined, (error) => {
+        console.error('Error loading cloud:', cloudFile, error);
+    });
+});
+
+// Spawn clouds in the sky (3-4 clouds for maximum performance)
+function spawnCloudsInSky() {
+    const numClouds = 3 + Math.floor(Math.random() * 2); // 3-4 clouds only
+    
+    for (let i = 0; i < numClouds; i++) {
+        // Random cloud model
+        const cloudModel = loadedClouds[Math.floor(Math.random() * loadedClouds.length)];
+        const cloud = cloudModel.clone();
+        
+        // Random position in sky (closer for performance)
+        const angle = (Math.random() * Math.PI * 2);
+        const distance = 35 + Math.random() * 40; // 35-75 units away (closer)
+        const x = Math.cos(angle) * distance;
+        const z = Math.sin(angle) * distance;
+        const y = 10 + Math.random() * 10; // 10-20 units high (lower)
+        
+        cloud.position.set(x, y, z);
+        
+        // Random rotation
+        cloud.rotation.y = Math.random() * Math.PI * 2;
+        
+        // Random scale (smaller for performance)
+        const scale = 0.6 + Math.random() * 0.4; // 0.6 to 1.0 (smaller)
+        cloud.scale.setScalar(scale);
+        
+        // Optimize materials for performance
+        cloud.traverse((child) => {
+            if (child.isMesh) {
+                child.castShadow = false;
+                child.receiveShadow = false;
+                // Replace with white MeshBasicMaterial (unaffected by fog or lighting)
+                child.material = new THREE.MeshBasicMaterial({
+                    color: 0xffffff, // Pure white
+                    fog: false // Clouds not affected by fog
+                });
+            }
+        });
+        
+        scene.add(cloud);
+    }
+    
+    console.log(`${numClouds} clouds spawned in sky`);
+}
+*/
+// END OF DISABLED NATURE-WORLD-ONLY CODE
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WORLD LOADING - Check world type and load appropriate environment
+// ═══════════════════════════════════════════════════════════════════════════
+
+if (gameConfig.world === 'architecture') {
+    // ═══════════════════════════════════════════════════════════════════════
+    // 🏛️ TEMPLE WORLD (Brihadeeswarar Temple)
+    // ═══════════════════════════════════════════════════════════════════════
+    console.log('🏛️ Loading Thanjavur Periya Kovil (Big Temple) FBX Model...');
+    console.log('   ⚠️ If you see old temple, HARD REFRESH: Ctrl+Shift+F5');
+    
+    // Clear fog for temple world
+    scene.fog = null;
+    
+    // Initialize temple environment (loads FBX model)
+    initTempleWorld(scene);
+    
+    // Note: Player and camera will be positioned after player entity is created
+    // Raja model will be loaded in the character loading section below
+    
+    console.log('✅ Temple World Loaded');
+    
+} else if (gameConfig.world === 'water') {
+    // ═══════════════════════════════════════════════════════════════════════
+    // 💧 WATER MANAGEMENT WORLD (Chola Irrigation System)
+    // ═══════════════════════════════════════════════════════════════════════
+    console.log('💧 Loading Chola Water Management System...');
+    console.log('   Features: Stone dam, sluice gates, canals, tank (eri)');
+    
+    // Clear fog for water world
+    scene.fog = null;
+    
+    // Initialize water management environment
+    initWaterWorld(scene);
+    
+    console.log('✅ Water Management World Loaded');
+    
+} else {
+    // ═══════════════════════════════════════════════════════════════════════
+    // 🌲 NATURE/FOREST WORLD (Default)
+    // ═══════════════════════════════════════════════════════════════════════
+    console.log('🌲 Loading Nature/Forest World...');
 
 // Ground plane - Infinite forest floor (Ultra Performance)
 const groundGeometry = new THREE.PlaneGeometry(800, 800); // Smaller plane for better FPS
@@ -498,7 +768,7 @@ function unloadChunk(chunkKey) {
 }
 
 // Update chunks based on player position - INSTANT (Minecraft-style)
-function updateChunks(playerX, playerZ) {
+updateChunks = function(playerX, playerZ) {
     const playerChunk = getChunkCoords(playerX, playerZ);
     
     // Update EVERY time player moves to different chunk (no throttling)
@@ -541,17 +811,29 @@ function updateChunks(playerX, playerZ) {
 // Initialize - load spawn chunk
 console.log('Minecraft-style instant chunk system: 16x16, Render: 3, Objects: 1-2 per chunk');
 
-// Load Raja Raja Cholan model
+} // End of Nature/Forest World loading
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CHARACTER LOADING (Nature world only)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Declare Raja variables at higher scope for animation loop access
 let rajaMixer = null;
-let rajaModel = null; // Store reference for click detection
-window.rajaModel = null; // Expose globally for voice system
+let rajaModel = null;
+window.rajaModel = null;
+
+// Load Raja Raja Cholan model (only in nature world)
+if (gameConfig.world === 'nature') {
 const loader = new FBXLoader();
 // Add cache busting timestamp to force reload when model changes
 const modelPath = 'characters/raja raja cholan/rajarajacholan.fbx?v=' + Date.now();
 loader.load(modelPath, (fbx) => {
     // Match the player character scale
     fbx.scale.setScalar(0.018);
+    
+    // Nature world - default position
     fbx.position.set(5, 0, 0);
+    
     fbx.traverse(c => {
         c.castShadow = false; // No shadows for performance
     });
@@ -580,6 +862,7 @@ loader.load(modelPath, (fbx) => {
 }, undefined, (error) => {
     console.error('Error loading Raja Raja Cholan model:', error);
 });
+} // End of Raja loading (nature world only)
 
 console.log('Scene initialized');
 
@@ -621,6 +904,10 @@ const crosshair = document.getElementById('crosshair');
 
 // Pointer lock for mouse control
 document.body.addEventListener('click', () => {
+    // Don't allow pointer lock until game is loaded
+    if (!window.gameLoaded) {
+        return;
+    }
     document.body.requestPointerLock();
 });
 
@@ -714,7 +1001,7 @@ const mouse = new THREE.Vector2();
 
 // Function to play NPC introduction audio
 async function playNPCIntro() {
-    if (!rajaModel || rajaModel.userData.hasPlayedIntro) {
+    if (!window.rajaModel || window.rajaModel.userData.hasPlayedIntro) {
         return; // Already played or model not loaded
     }
     
@@ -751,7 +1038,7 @@ async function playNPCIntro() {
         showNPCDialogue();
         
         npcAudio.play();
-        rajaModel.userData.hasPlayedIntro = true;
+        window.rajaModel.userData.hasPlayedIntro = true;
         
         console.log('🔊 Playing Raja Raja Cholan introduction');
         
@@ -762,8 +1049,7 @@ async function playNPCIntro() {
             
             // Enable voice chat after intro
             console.log('✅ Intro finished - Voice chat enabled!');
-            rajaModel.userData.voiceChatEnabled = true;
-            window.rajaModel.userData.voiceChatEnabled = true; // Ensure global is updated
+            window.rajaModel.userData.voiceChatEnabled = true;
             
             console.log('🎤 Voice chat status:', {
                 canInteract: window.canInteract,
@@ -881,7 +1167,7 @@ let eKeyPressed = false;
 window.addEventListener('keydown', (event) => {
     if (event.code === 'KeyE' && !eKeyPressed) {
         eKeyPressed = true;
-        if (canInteract && rajaModel && !rajaModel.userData.hasPlayedIntro) {
+        if (canInteract && window.rajaModel && !window.rajaModel.userData.hasPlayedIntro) {
             playNPCIntro();
         }
     }
@@ -895,13 +1181,14 @@ window.addEventListener('keyup', (event) => {
 
 // Check proximity to NPC and show tooltip
 function checkNPCProximity() {
-    if (!rajaModel) return;
+    // Use window.rajaModel (works for both nature and architecture worlds)
+    if (!window.rajaModel) return;
     
     const player = entityManager.Get('player');
     if (!player || !player._position) return;
     
     const playerPos = player._position;
-    const npcPos = rajaModel.position;
+    const npcPos = window.rajaModel.position;
     const distance = playerPos.distanceTo(npcPos);
     
     // Player is within interaction range
@@ -912,11 +1199,11 @@ function checkNPCProximity() {
             window.canInteract = true; // Update global
             
             // Show appropriate tooltip based on state
-            if (!rajaModel.userData.hasPlayedIntro) {
+            if (!window.rajaModel.userData.hasPlayedIntro) {
                 // Show "Press E" tooltip
                 npcTooltip.classList.add('visible');
                 hideVoiceChatTooltip();
-            } else if (rajaModel.userData.voiceChatEnabled) {
+            } else if (window.rajaModel.userData.voiceChatEnabled) {
                 // Show "Hold V" tooltip
                 npcTooltip.classList.remove('visible');
                 showVoiceChatTooltip();
@@ -939,7 +1226,7 @@ console.log('NPC proximity system initialized');
 const voiceChatTooltip = document.getElementById('voiceChatTooltip');
 
 function showVoiceChatTooltip() {
-    if (voiceChatTooltip && rajaModel && rajaModel.userData.voiceChatEnabled) {
+    if (voiceChatTooltip && window.rajaModel && window.rajaModel.userData.voiceChatEnabled) {
         voiceChatTooltip.classList.add('visible');
     }
 }
@@ -970,6 +1257,15 @@ function animate() {
         lastTime = fpsCheckTime;
     }
     
+    // DEV ONLY: Update coordinates display every frame
+    if (coordsElement) {
+        const player = entityManager.Get('player');
+        if (player && player._position) {
+            const p = player._position;
+            coordsElement.textContent = `X:${p.x.toFixed(1)} Y:${p.y.toFixed(1)} Z:${p.z.toFixed(1)}`;
+        }
+    }
+    
     const currentTime = performance.now();
     const timeElapsed = (currentTime - previousTime) / 1000; // Convert to seconds
     previousTime = currentTime;
@@ -977,10 +1273,18 @@ function animate() {
     // Update all entities
     entityManager.Update(timeElapsed);
     
+    // Animate water in river world
+    if (gameConfig.world === 'water') {
+        animateWater(currentTime / 1000);
+    }
+    
     // Update chunks based on player position (INSTANT - Minecraft-style)
-    const player = entityManager.Get('player');
-    if (player && player._position) {
-        updateChunks(player._position.x, player._position.z);
+    // Only for nature world - temple world doesn't use chunks
+    if (gameConfig.world === 'nature') {
+        const player = entityManager.Get('player');
+        if (player && player._position) {
+            updateChunks(player._position.x, player._position.z);
+        }
     }
     
     // AUDIO: Update walk sound (optimized - check every 5 frames to reduce overhead)
@@ -1007,9 +1311,12 @@ function animate() {
         }
     }
     
-    // Update raja mixer if it exists
+    // Update raja mixer if it exists (both nature and architecture worlds)
     if (rajaMixer) {
         rajaMixer.update(timeElapsed);
+    }
+    if (window.rajaMixer) {
+        window.rajaMixer.update(timeElapsed);
     }
     
     // Check proximity to NPC for tooltip
@@ -1028,6 +1335,15 @@ window.addEventListener('resize', () => {
 // Start animation
 console.log('Starting animation loop');
 animate();
+
+// Initial loading state - only for architecture world
+if (gameConfig.world === 'architecture' && loadingStatus) {
+    loadingStatus.textContent = 'Loading temple...';
+    updateLoadingProgress();
+} else if (gameConfig.world === 'nature') {
+    // Nature world loads instantly
+    window.gameLoaded = true;
+}
 
 // Log what should be visible
 console.log('Setup complete. Character at:', playerEntity._position);
