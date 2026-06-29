@@ -23,6 +23,19 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from services.npc_voice_pipeline import process_voice_chat, text_to_speech_tamil, clean_text_for_tts
 
+# Map character IDs to intro audio filenames
+NPC_INTRO_MAP = {
+    "senguttuvan_cheran": "senguttuvan_chera.mp3",
+    "aditya_chola": "aditya_chola_i.mp3",
+    "nedunjeliyan_1": "nedunjeliyan_i.mp3",
+    "raja_raja_cholan": "rajaraja_chola_i.mp3",
+    "kulasekara_pandya": "kulasekara_pandya_i.mp3",
+    "cheraman_perumal": "cheraman_perumal.mp3",
+    "karikala_cholan": "karikala_chozhan.mp3",
+    "uthiyan_cheralathan": "uthiyan_cheralathan.mp3",
+    "ariyan_nedunjeliyan_2": "ariyan_nedunjeliyan_ii.mp3",
+}
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -76,25 +89,35 @@ async def root():
 
 # ==================== NPC INTRO ====================
 
+class IntroRequest(BaseModel):
+    npc_name: str = "raja_raja_cholan"
+
 @app.post("/npc/intro")
-async def npc_intro():
+async def npc_intro(request: IntroRequest):
     """
-    Serve Raja Raja Cholan's introduction audio (static MP3).
+    Serve NPC introduction audio (MP3) based on npc_name.
     
     Returns pre-recorded Tamil intro audio as MP3 file.
     """
-    audio_file = NPC_AUDIO_DIR / "raja_raja_cholan_intro.mp3"
+    intro_file = NPC_INTRO_MAP.get(request.npc_name)
+    if not intro_file:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No intro mapping for NPC: {request.npc_name}"
+        )
+    
+    audio_file = NPC_AUDIO_DIR / intro_file
     
     if not audio_file.exists():
         raise HTTPException(
             status_code=404,
-            detail=f"NPC intro audio not found at {audio_file}"
+            detail=f"NPC intro audio not found for {request.npc_name} at {audio_file}"
         )
     
     return FileResponse(
         path=str(audio_file),
         media_type="audio/mpeg",
-        filename="raja_raja_cholan_intro.mp3"
+        filename=intro_file
     )
 
 
@@ -177,6 +200,7 @@ async def npc_voice_chat(audio: UploadFile = File(...)):
 class ChatRequest(BaseModel):
     message: str
     response_language: str = "ta"
+    npc_name: str = "raja_raja_cholan"
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
@@ -188,7 +212,7 @@ async def chat(request: ChatRequest):
     - This endpoint returns AI text response
     - Frontend does TTS via /tts endpoint
     
-    Input: {"message": "player text", "response_language": "ta"}
+    Input: {"message": "player text", "response_language": "ta", "npc_name": "raja_raja_cholan"}
     Output: {"response": "NPC Tamil response"}
     """
     try:
@@ -197,16 +221,30 @@ async def chat(request: ChatRequest):
         
         print(f"[Chat] Player: {request.message[:100]}")
         
+        # Map npc_name to display name for personality lookup
+        NPC_DISPLAY_MAP = {
+            "senguttuvan_cheran": "Senguttuvan Chera",
+            "aditya_chola": "Aditya Chola I",
+            "nedunjeliyan_1": "Nedunjeliyan I",
+            "raja_raja_cholan": "Raja Raja Cholan",
+            "kulasekara_pandya": "Kulasekara Pandya I",
+            "cheraman_perumal": "Cheraman Perumal",
+            "karikala_cholan": "Karikala Cholan",
+            "uthiyan_cheralathan": "Uthiyan Cheralathan",
+            "ariyan_nedunjeliyan_2": "Ariyan Nedunjeliyan II",
+        }
+        character_name = NPC_DISPLAY_MAP.get(request.npc_name, "Raja Raja Cholan")
+        
         # Import NPC response function
         from services.npc_voice_pipeline import get_npc_response
         
         # Get AI response using NPC personality
         npc_response = await get_npc_response(
             player_text=request.message,
-            character_name="Raja Raja Cholan"
+            character_name=character_name
         )
         
-        print(f"[Chat] NPC: {npc_response[:100]}")
+        print(f"[Chat] NPC ({character_name}): {npc_response[:100]}")
         
         return {"response": npc_response}
     

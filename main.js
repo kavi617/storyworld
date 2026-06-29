@@ -59,6 +59,8 @@ import {
   getCollisionMeshes as getWaterCollisionMeshes,
   getGroundMeshes as getWaterGroundMeshes,
 } from "./water-management-world.js";
+import { integrateSceneCharacters } from "./SceneIntegrator.js";
+import { gameLoading } from "./GameLoading.js";
 
 console.log("Imports loaded successfully");
 
@@ -76,77 +78,28 @@ console.log(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════
-// LOADING SCREEN MANAGEMENT (Architecture world only)
+// LOADING SCREEN MANAGEMENT - Unified with GameLoading.js
 // ═══════════════════════════════════════════════════════════════════════════
-const loadingScreen = document.getElementById("loadingScreen");
-const loadingProgress = document.getElementById("loadingProgress");
-const loadingStatus = document.getElementById("loadingStatus");
-
-let loadingState = {
-  temple: false,
-  player: false,
-  raja: false,
-  ready: false,
-};
-
-// For nature and water worlds, temple and raja don't exist, so mark them as loaded
-if (gameConfig.world === "nature" || gameConfig.world === "water") {
-  loadingState.temple = true;
-  loadingState.raja = true;
-}
-
-// Expose globally so other modules can update it
-window.loadingState = loadingState;
-
-function updateLoadingProgress() {
-  // Only show loading screen for architecture world
-  if (gameConfig.world !== "architecture" || !loadingScreen) {
-    // For nature and water worlds, just mark as ready immediately
-    if (gameConfig.world === "nature" || gameConfig.world === "water") {
-      window.gameLoaded = true;
-    }
-    return;
-  }
-
-  const completed = Object.values(loadingState).filter(
-    (v) => v === true,
-  ).length;
-  const total = Object.keys(loadingState).length;
-  const percent = (completed / total) * 100;
-
-  if (loadingProgress) loadingProgress.style.width = percent + "%";
-
-  // Update status text
-  if (loadingStatus) {
-    if (loadingState.temple && !loadingState.player) {
-      loadingStatus.textContent = "Loading player...";
-    } else if (loadingState.player && !loadingState.raja) {
-      loadingStatus.textContent = "Loading Raja Raja Cholan...";
-    } else if (loadingState.raja && !loadingState.ready) {
-      loadingStatus.textContent = "Almost ready...";
-    }
-  }
-
-  // All loaded - hide screen quickly
-  if (completed === total - 1) {
-    // All except 'ready'
-    loadingState.ready = true;
-    if (loadingStatus) loadingStatus.textContent = "Ready! வரவேற்கிறோம்!";
-
-    setTimeout(() => {
-      loadingScreen.classList.add("hidden");
-      setTimeout(() => {
-        loadingScreen.classList.remove("active");
-        window.gameLoaded = true;
-      }, 500);
-    }, 300);
-  }
-}
-
-// Expose globally
-window.updateLoadingProgress = updateLoadingProgress;
 
 window.gameLoaded = false; // Global flag to prevent interaction during loading
+
+// Initialize loading system
+if (window.gameLoading) {
+  window.gameLoading.init(gameConfig.world);
+  window.gameLoading.activate();
+}
+
+// Safety timeout - force-complete loading after 90 seconds max (120MB FBX files)
+const LOADING_SAFETY_TIMEOUT = 90000;
+setTimeout(() => {
+  if (!window.gameLoaded) {
+    console.warn("⚠️ Loading safety timeout reached - force starting game");
+    if (window.gameLoading) {
+      ["characters", "player", "world"].forEach(t => window.gameLoading.completeTask(t));
+    }
+    window.gameLoaded = true;
+  }
+}, LOADING_SAFETY_TIMEOUT);
 
 // Stub for chunk system (only used in nature world, but defined globally to prevent errors)
 let updateChunks = () => {}; // No-op by default, will be overridden in nature world
@@ -413,8 +366,10 @@ if (gameConfig.world === "architecture") {
   // Initialize temple environment (loads FBX model)
   initTempleWorld(scene);
 
-  // Note: Player and camera will be positioned after player entity is created
-  // Raja model will be loaded in the character loading section below
+  // Complete world loading task
+  if (window.gameLoading) {
+    window.gameLoading.completeTask("world");
+  }
 
   console.log("✅ Temple World Loaded");
 } else if (gameConfig.world === "water") {
@@ -429,6 +384,11 @@ if (gameConfig.world === "architecture") {
 
   // Initialize water management environment
   initWaterWorld(scene);
+
+  // Water world loaded synchronously - mark task complete
+  if (window.gameLoading) {
+    window.gameLoading.completeTask("world");
+  }
 
   console.log("✅ Water Management World Loaded");
 } else {
@@ -957,115 +917,63 @@ if (gameConfig.world === "architecture") {
   console.log(
     "Minecraft-style instant chunk system: 16x16, Render: 3, Objects: 1-2 per chunk",
   );
+
+  // Create nature world NPC placeholders
+  (function createNaturePlaceholders() {
+    const natureSpawns = {
+      senguttuvan_cheran: { x: 8, y: 0, z: 5 },
+      aditya_chola: { x: -8, y: 0, z: 8 },
+      nedunjeliyan_1: { x: 12, y: 0, z: -3 },
+    };
+    for (const [name, pos] of Object.entries(natureSpawns)) {
+      const mesh = new THREE.Object3D();
+      mesh.position.set(pos.x, pos.y, pos.z);
+      mesh.rotation.y = Math.PI;
+      mesh.name = name;
+      mesh.userData.isNPC = true;
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
+      scene.add(mesh);
+    }
+    console.log("NPC placeholders created for nature world");
+  })();
 } // End of Nature/Forest World loading
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CHARACTER LOADING (Nature world only)
+// CHARACTER LOADING (All worlds) - Async, non-blocking
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Declare Raja variables at higher scope for animation loop access
-let rajaMixer = null;
 let rajaModel = null;
 window.rajaModel = null;
 
-// Load Raja Raja Cholan model (only in nature world)
-if (gameConfig.world === "nature") {
-  const loader = new FBXLoader();
-  // Add cache busting timestamp to force reload when model changes
-  const modelPath =
-    "characters/raja raja cholan/rajarajacholan.fbx?v=" + Date.now();
-  loader.load(
-    modelPath,
-    (fbx) => {
-      // Match the player character scale
-      fbx.scale.setScalar(0.022);
-
-      // Nature world - use base position then align bottom of model to ground
-      const _rajaBasePos = new THREE.Vector3(5, 0, 0);
-      fbx.position.copy(_rajaBasePos);
-      fbx.updateMatrixWorld(true);
-      const _rajaBox = new THREE.Box3().setFromObject(fbx);
-      const _rajaYOffset = -_rajaBox.min.y;
-      if (Number.isFinite(_rajaYOffset)) {
-        fbx.position.y += _rajaYOffset;
+// Load characters via SceneIntegrator (replaces placeholders with FBX models)
+// SceneIntegrator handles loading task completion internally
+(function loadCharactersAsync() {
+  integrateSceneCharacters(scene, gameConfig.world).then(() => {
+    // Collect all placed NPCs for efficient proximity checks
+    const npcObjects = [];
+    scene.traverse((obj) => {
+      if (obj.userData?.isNPC && obj.userData?.npcName) {
+        npcObjects.push(obj);
       }
+    });
+    window.npcObjects = npcObjects;
 
-      fbx.traverse((c) => {
-        c.castShadow = false; // No shadows for performance
-      });
-      scene.add(fbx);
-
-      // Store reference for click detection
-      rajaModel = fbx;
-      window.rajaModel = fbx; // Expose globally for voice system
-      rajaModel.userData.isNPC = true;
-      rajaModel.userData.npcName = "raja_raja_cholan";
-      rajaModel.userData.hasPlayedIntro = false; // Track if intro has been played
-
-      // Check if the model has animations
-      if (fbx.animations && fbx.animations.length > 0) {
-        rajaMixer = new THREE.AnimationMixer(fbx);
-
-        // Play the first animation (usually idle)
-        const idleClip = fbx.animations[0];
-        const idleAction = rajaMixer.clipAction(idleClip);
-        idleAction.play();
-
-        console.log(
-          "Raja Raja Cholan model loaded with",
-          fbx.animations.length,
-          "animations",
-        );
-      } else {
-        console.log("Raja Raja Cholan model loaded (no animations found)");
-      }
-    },
-    undefined,
-    (error) => {
-      console.error("Error loading Raja Raja Cholan model:", error);
-    },
-  );
-} // End of Raja loading (nature world only)
+    // Set raja reference for backward compatibility
+    const raja = scene.getObjectByName('raja_raja_cholan');
+    if (raja) {
+      rajaModel = raja;
+      window.rajaModel = raja;
+      window.rajaModel.userData.isNPC = true;
+      window.rajaModel.userData.npcName = "raja_raja_cholan";
+      window.rajaModel.userData.hasPlayedIntro = false;
+    }
+  }).catch(err => {
+    console.warn("Character loading error:", err);
+  });
+})();
 
 console.log("Scene initialized");
-
-// Temporary force-override: ensure Raja is placed on the temple floor —
-// only apply in the `architecture` world. To revert, remove/comment this block.
-if (gameConfig.world === "architecture") {
-  (function forceRajaPositionAfterLoad() {
-    const DESIRED_POS = new THREE.Vector3(4, 7, -40.3);
-    let attempts = 0;
-    const maxAttempts = 200; // ~20 seconds total (100ms interval)
-    const id = setInterval(() => {
-      attempts++;
-      if (window.rajaModel) {
-        try {
-          window.rajaModel.position.set(
-            DESIRED_POS.x,
-            DESIRED_POS.y,
-            DESIRED_POS.z,
-          );
-          console.log(
-            "🔧 Force-set Raja position to:",
-            window.rajaModel.position,
-          );
-        } catch (e) {
-          console.error("Error force-setting Raja position:", e);
-        }
-        clearInterval(id);
-        return;
-      }
-      if (attempts >= maxAttempts) {
-        console.warn(
-          "⚠️ forceRajaPositionAfterLoad: window.rajaModel not found after",
-          attempts,
-          "attempts",
-        );
-        clearInterval(id);
-      }
-    }, 100);
-  })();
-}
 
 // Entity Manager
 const entityManager = new entity_manager.EntityManager();
@@ -1094,6 +1002,11 @@ const cameraComponent = new third_person_camera.ThirdPersonCamera({
 });
 playerEntity.AddComponent(cameraComponent);
 console.log("Camera component added, camera at:", camera.position);
+
+// Player setup complete - mark loading task
+if (window.gameLoading) {
+  window.gameLoading.completeTask("player");
+}
 
 // Mouse look controls
 let mouseRotationY = 0; // Horizontal rotation
@@ -1202,6 +1115,36 @@ function setupAudio() {
 setupAudio();
 
 // ==================== NPC CLICK DETECTION ====================
+
+const NPC_DISPLAY_NAMES = {
+  senguttuvan_cheran: "செங்குட்டுவன் சேரன்",
+  aditya_chola: "ஆதித்த சோழன்",
+  nedunjeliyan_1: "நெடுஞ்செழியன் I",
+  raja_raja_cholan: "இராஜராஜ சோழன்",
+  kulasekara_pandya: "குலசேகர பாண்டியன்",
+  cheraman_perumal: "சேரமான் பெருமாள்",
+  karikala_cholan: "கரிகால சோழன்",
+  uthiyan_cheralathan: "உதியன் சேரலாதன்",
+  ariyan_nedunjeliyan_2: "அரியன் நெடுஞ்செழியன் II",
+};
+
+const NPC_SCRIPTS = {
+  senguttuvan_cheran: "மேற்குத் தொடர்ச்சி மலைகள் பழங்காலக் காவலர்களைப் போல உயர்ந்து நிற்கும் மலைகளுக்கும் காடுகளுக்கும் அதிபதியான சேரன் செங்குட்டுவன் நான். சந்தனம், மிளகு மற்றும் ஏலக்காய் விளையும் காடுகளே என் நாட்டின் செழிப்பிற்கு அடிப்படையாகத் திகழ்ந்தன; இங்கிருந்து விளைபொருட்கள் மலைப்பாதைகள் வழியாக முசிறி எனும் பெரும் துறைமுகத்திற்கு எடுத்துச் செல்லப்பட்டன. தென்னக மன்னர்கள் வெகு சிலரே துணிந்து மேற்கொண்ட செயலான புனித கங்கை நோக்கிய பயணத்தை நான் மேற்கொண்டேன்; அங்கு சென்று கண்ணகியின் திருவுருவத்தைச் செதுக்குவதற்கான கல்லை எடுத்து வந்தேன். அதைக் கொண்டு முதல் பத்தினி-கண்ணகி கோயிலை அமைத்தேன்; இதன் மூலம் நீதி மற்றும் தூய்மையைப் போற்றும் ஒரு வழிபாட்டு முறையை உருவாக்கி என் மக்களை ஒன்றிணைத்தேன். காட்டுப் பகுதி வணிகப் பாதைகளை வலுப்படுத்தினேன், மலைப்பாதைகளைப் பாதுகாப்பான அரண்களாக மாற்றினேன், மேலும் மேற்குக் கடற்கரையோரம் கடற்படை வலிமையையும் பெருக்கினேன். காடுகள் நிறைந்த சேர நாட்டைத் துறைமுகங்கள், வழிபாட்டுத் தலங்கள் மற்றும் மலைக்கோட்டைகள் கொண்ட ஒரு செழிப்பான கட்டமைப்பாக மாற்றியதே எனது மிகப்பெரிய சாதனையாகும்; இதன் மூலம், மிகவும் கரடுமுரடான நிலப்பகுதிகள் கூட ஒரு வலிமையான பேரரசின் மையமாகத் திகழ முடியும் என்பதை நான் நிரூபித்தேன்.",
+  aditya_chola: "சோழ வம்சத்தை மீட்டெடுத்து, அதன் இழந்த பெருமையை மீண்டும் நிலைநாட்டிய மன்னன் நானே ஆதித்த சோழன். பல்லவர்கள் வலிமை குன்றியிருந்த வேளையில், அவர்களின் முக்கியப் பகுதிகளைக் கைப்பற்றி சோழர் ஆட்சியை மீண்டும் நிலைநிறுத்தினேன். கொங்கு நாட்டின் அடர்ந்த மலைப்பகுதிகளை என் ஆட்சியின் கீழ் கொண்டு வந்ததுடன், காளஹஸ்தியில் உள்ள புகழ்பெற்ற கருங்கல் கோயில் உட்பட அப்பகுதி முழுவதும் பல கோயில்களை எழுப்பினேன். காட்டுப் பகுதி குடியேற்றங்களைச் சீரமைத்து, கிராம நிர்வாகத்தை வலுப்படுத்தியதுடன், பிற்காலத்தில் என் வழித்தோன்றல்கள் உருவாக்கவிருந்த பிரம்மாண்டமான கட்டிடக்கலைக்கு அடித்தளத்தையும் அமைத்தேன். சோழப் பேரரசை மீட்டெடுத்ததே எனது ஆகச்சிறந்த சாதனையாகும்; அதன் ராணுவத்தை வலுப்படுத்தியது, இழந்த நிலங்களை மீட்டது மற்றும் அதனைத் தொடர்ந்து வந்த பொற்காலத்திற்கான அடித்தளத்தை அமைத்தது ஆகியவை இதில் அடங்கும். ஒழுக்கம், வியூகம் மற்றும் தொலைநோக்குப் பார்வை ஆகியவற்றின் மூலம், காடுகள் சூழ்ந்த எல்லைப் பகுதிகளை வளர்ந்து வந்த ஒரு பேரரசின் முதுகெலும்பாக நான் மாற்றினேன்.",
+  nedunjeliyan_1: "நான் பாண்டியர் குலத்தைச் சேர்ந்த நெடுஞ்செழியன்; முல்லை நிலப் பகுதிகளான காடுகள், மேய்ச்சல் நிலங்கள் மற்றும் மலைவாழ் மக்களின் நிலப்பரப்புகளை ஆளும் போர்வீர-மன்னன் ஆவேன். அடர்ந்த காடுகளில் நான் மேற்கொண்ட போர்களில் எதிரி மன்னர்களைத் தோற்கடித்ததோடு, மதுரையின் செழிப்பிற்கு ஆதாரமாக விளங்கிய காட்டுப் பாதைகளையும் பாதுகாத்தேன். காட்டுப் பகுதிகளில் அரண் அமைக்கப்பட்ட காவல் நிலையங்களை நிறுவி, வணிகப் பாதைகளை வலுப்படுத்தியதோடு, வணிகர்களும் பயணிகளும் பாதுகாப்பாகச் செல்ல வழிவகைகளை உருவாக்கினேன். பாண்டியரின் ஆதிக்கத்தை நிலைநாட்டிய தலையாலங்கானப் போர் மற்றும் பிற போர்களில் நான் பெற்ற வெற்றிகளைப் புலவர்கள் புகழ்ந்து பாடினர். மதுரையைச் சுற்றியிருந்த காடுகள் நிறைந்த பகுதிகளை ஒன்றிணைத்து, அவற்றை ஒரு நிலையான மற்றும் செழிப்பான எல்லைப் பகுதியாக மாற்றியதே எனது மிகப்பெரிய சாதனையாகும். என் ஆட்சிக்காலத்தில், காடுகள் வெறும் காட்டுப் பிரதேசமாக இல்லாமல், பாண்டியரின் வலிமையைப் பறைசாற்றும் கேடயமாகவும், வளங்களின் இருப்பிடமாகவும் திகழ்ந்தன.",
+  raja_raja_cholan: "கற்களில் என் கனவு எழுந்த பேரரசனாகிய ராஜராஜ சோழன் நான். எனது மாபெரும் படைப்பு தஞ்சாவூரில் உள்ள பிரகதீஸ்வரர் கோயில் — துல்லியத்துடனும் பக்தியுடனும் கட்டப்பட்ட, இன்றும் பிரமிப்பைத் தூண்டும் ஒரு வானுயர்ந்த கருங்கல் அதிசயம். நான் என் பேரரசு முழுவதும் கோயில்களைக் கட்டினேன், நகரங்களை அரண்செய்தேன், நாகப்பட்டினம் போன்ற துறைமுகங்களை விரிவுபடுத்தினேன். நான் நில நிர்வாகத்தை மறுசீரமைத்தேன், கோயில் அறக்கட்டளைகளை நிறுவினேன், மேலும் ஆட்சியின் ஒவ்வொரு அம்சத்தையும் பதிவுசெய்யும் விரிவான கல்வெட்டுகளை உருவாக்கினேன். எனது கடற்படைப் பயணங்கள் இலங்கை மற்றும் தென்கிழக்கு ஆசியாவை அடைந்து, கடல்களுக்கு அப்பால் சோழர்களின் செல்வாக்கைப் பரப்பின. எனது மாபெரும் சாதனை, சோழப் பேரரசை ஒரு கலாச்சார மற்றும் கட்டிடக்கலை வல்லமைமிக்க மையமாக மாற்றியதே ஆகும்; அங்கு கல் அழியாததாக மாறியது, பேரரசு புகழ்பெற்றதாக ஆனது.",
+  kulasekara_pandya: "மதுரையைத் திருக்கோயில்கள் நிறைந்த நகரமாக மாற்றிய மன்னன் நானே. எனது ஆதரவின் கீழ், மீனாட்சி-சுந்தரேசுவரர் கோயில் புதிய மண்டபங்கள், சிற்றாலயங்கள் மற்றும் எனது தலைநகரின் வானளாவிய தோற்றத்தை வடிவமைத்த பிரம்மாண்டமான கோபுரங்களுடன் விரிவுபடுத்தப்பட்டது. நான் பல கோயில் வளாகங்களை உருவாக்கினேன்; சிற்பிகளை ஆதரித்ததோடு, எனது அரசவையைத் தங்கள் அறிவாற்றலால் சிறக்கச் செய்த கவிஞர்களையும் அறிஞர்களையும் ஊக்குவித்தேன். கோயில்களை மையமாகக் கொண்டு நகர அமைப்பைச் சீரமைத்து, மதுரையை ஒரு புனிதமான பெருநகரமாக மாற்றினேன். கட்டடக்கலை, பக்தி மற்றும் கலைகள் அனைத்தும் ஒருசேரச் செழித்தோங்கிய ஒரு கலாச்சார மறுமலர்ச்சிக்குத் தலைமை தாங்கியதே எனது மிகச்சிறந்த சாதனையாகும். எனது ஆட்சிக்காலத்தில் செதுக்கப்பட்ட கற்கள் இன்றும் பேசுகின்றன — அவை கடவுள்கள், மன்னர்கள் மற்றும் பாண்டிய நாட்டின் பெருமைமிகு வரலாற்றை நமக்கு எடுத்துரைக்கின்றன.",
+  cheraman_perumal: "கேரளாவின் கோயில்கள் மற்றும் மரபுகளில் இன்றும் நிலைத்திருக்கும் ஒரு பாரம்பரியத்திற்குச் சொந்தக்காரனான சேர மன்னன், நானே சேரமான் பெருமாள். எனது ஆட்சிக்காலத்தில் பல முக்கிய ஆலயங்களை நான் கட்டியும் புதுப்பித்தும், கேரளாவுக்கே உரித்தான தனித்துவமான ஆரம்பகால திராவிடக் கட்டடக்கலை பாணியை உருவாக்கினேன். வடக்கும்நாதன் கோயில் போன்ற ஆலயங்களின் கட்டுமானத்திற்கு நான் ஆதரவளித்ததோடு, கோயில்களை மையமாகக் கொண்ட நகரங்களையும் வலுப்படுத்தினேன். கவிஞர்கள், இசைக்கலைஞர்கள் மற்றும் அறிஞர்களுக்கு எனது அரசவை ஒரு புகலிடமாகத் திகழ்ந்தது; அவர்கள் அனைவருடனும் இணைந்து எனது நாட்டின் கலாச்சார அடையாளத்தை நான் செதுக்கினேன். பக்தி, கலை மற்றும் சமூக வாழ்க்கை ஆகியவற்றை ஒன்றிணைக்கும் வகையிலான ஒரு ஆன்மீக மற்றும் கட்டடக்கலை அடித்தளத்தை அமைத்ததே எனது மிகச்சிறந்த சாதனையாகும். கோயில்கள், திருவிழாக்கள் மற்றும் கலாச்சாரத்திற்கான எனது ஆதரவு ஆகியவற்றின் மூலம், கேரளாவின் புனிதத் தலங்களில் இன்றும் உயிர்ப்புடன் திகழும் ஒரு உன்னத மரபை நான் உருவாக்கினேன்.",
+  karikala_cholan: "நான் கரிகால சோழன்; சீறிப்பாயும் காவிரி நதியைத் தன் கட்டுப்பாட்டில் கொண்டுவந்த மன்னன் நான். உலகின் மிகப்பழமையான, இன்றும் பயன்பாட்டில் உள்ள அணைகளில் ஒன்றான 'கல்லணை'யே எனது மிகச்சிறந்த படைப்பாகும். பிரம்மாண்டமான கருங்கற்களைக் கொண்டு கட்டப்பட்ட இவ்வணை, இன்றும் காவிரி நீரைத் திருப்பிவிட்டு டெல்டா பகுதியை வளப்படுத்துகிறது. பாசனக் கால்வாய்களை விரிவுபடுத்தியும், கரைகளை வலுப்படுத்தியும், வேளாண்மைக்கான கட்டமைப்புகளை உருவாக்கியும், சோழ நாட்டின் மையப்பகுதியை நெல் வளம் கொழிக்கும் ஒரு சொர்க்க பூமியாக நான் மாற்றினேன். அத்துடன், கோட்டைகளை அமைத்து, வணிகப் பாதைகளை மேம்படுத்தி, புகார் துறைமுகத்தையும் வலுப்படுத்தினேன். நீரை ஆற்றல், வளம் மற்றும் நிலைத்தன்மையின் ஊற்றாக மாற்றியதே எனது ஆகச்சிறந்த சாதனையாகும்; இதன் மூலம், நான் செதுக்கிய இந்த மண்ணில் எனக்குப் பின்வரும் தலைமுறைகளும் செழித்து வாழ்வதை உறுதிசெய்தேன்.",
+  uthiyan_cheralathan: "நான் சேரர்களின் ஆரம்பகால மன்னர்களில் ஒருவனான உதியன் சேரலாதன்; பெரியாறு நதியே எனது நாட்டின் உயிர்நாடியாகத் திகழ்ந்தது. நான் அதன் நீர்ப்பாசனக் கட்டமைப்புகளை வலுப்படுத்தினேன், ஆரம்பகாலக் கால்வாய்களை வெட்டினேன், மேலும் அந்நீரை ஒவ்வொரு வயலுக்கும் கிராமத்திற்கும் கொண்டு சேர்ப்பதை உறுதி செய்தேன். உள்நாட்டு விவசாயிகளையும் கடற்கரைப்பகுதி வணிகர்களையும் இணைக்கும் வகையிலான ஆற்றுவழி வணிகப் பாதைகளை உருவாக்கி, என் நாட்டை ஒரு செழிப்பான வணிக மையமாக மாற்றினேன். நான் நீர் சேமிப்புக் குளங்களை அமைத்தேன், விவசாய நிலங்களை மேம்படுத்தினேன், அத்துடன் கேரளாவின் நீர்வளம் சார்ந்த செழிப்புக்கு அடித்தளமிட்டேன். வணிகம், விவசாயம் மற்றும் சமூக வாழ்க்கை ஆகியவை ஒன்றிணைந்து செழித்தோங்கும் ஒரு நிலையான, வளமான பகுதியாகப் பெரியாறு ஆற்றுப் படுகையை மாற்றியமைத்ததே எனது மிகச்சிறந்த சாதனையாகும்.",
+  ariyan_nedunjeliyan_2: "நான் பாண்டியர்களின் அரியன் நெடுஞ்சேலியன், காயப்பட்ட நிலத்தை மீண்டும் கட்டியெழுப்பிய மன்னன். போர்களும் வெள்ளங்களும் வைகைப் பகுதியைச் சூறையாடிய பிறகு, என் மக்களுக்கு வாழ்வாதாரமாக விளங்கிய கால்வாய்களையும், குளங்களையும், கரைகளையும் நான் புனரமைத்தேன். நான் நீர்ப்பாசன வலையமைப்புகளைப் புனரமைத்து, விவசாயத்திற்குப் புத்துயிர் அளித்து, மதுரையின் செழிப்புக்கு உணவளித்த நீர் அமைப்புகளை வலுப்படுத்தினேன். நான் நீர்த்தேக்கங்களைக் கட்டி, வெள்ளத்தால் சேதமடைந்த கட்டிடங்களைச் சீரமைத்து, மிகவும் தேவைப்படும் இடங்களுக்கு நீர் செல்வதை உறுதி செய்தேன். அழிவைப் புதுப்பித்தலாக மாற்றியதே எனது மாபெரும் சாதனையாகும் — மீள்திறன், ஞானம் மற்றும் தன் நீர்நிலைகளின் மீதான ஆளுமையால் வழிநடத்தப்படும்போது ஒரு இராச்சியம் மேலும் வலிமை பெற முடியும் என்பதை நிரூபித்தேன். நீரின் மூலம், என் நிலத்திற்கு உயிரையும், என் மக்களுக்கு நம்பிக்கையையும் மீட்டளித்தேன்.",
+};
+
+let activeNPC = null; // Currently near/interacting NPC
+window.activeNPC = null;
+window.NPC_DISPLAY_NAMES = NPC_DISPLAY_NAMES;
+window.NPC_SCRIPTS = NPC_SCRIPTS;
+
 // Backend URL - update if deploying to production
 // This value can be overridden at runtime by placing a ".env" file
 // at the web root containing a line like:
@@ -1256,14 +1199,21 @@ const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
 // Function to play NPC introduction audio
-async function playNPCIntro() {
-  if (!window.rajaModel || window.rajaModel.userData.hasPlayedIntro) {
-    return; // Already played or model not loaded
+async function playNPCIntro(npcName) {
+  if (!npcName) npcName = "raja_raja_cholan";
+  const npc = scene.getObjectByName(npcName);
+  if (!npc || npc.userData.hasPlayedIntro) {
+    return;
   }
+
+  activeNPC = npc;
+  window.activeNPC = npc;
 
   // Hide tooltip immediately when starting to play
   npcTooltip.classList.remove("visible");
   canInteract = false;
+
+  const displayName = NPC_DISPLAY_NAMES[npcName] || npcName;
 
   try {
     console.log("🎮 Fetching NPC introduction from backend...");
@@ -1273,13 +1223,14 @@ async function playNPCIntro() {
       headers: {
         "Content-Type": "application/json",
       },
+      body: JSON.stringify({ npc_name: npcName }),
     });
 
     if (!response.ok) {
       const error = await response.json();
       console.error("Failed to fetch NPC intro:", error.detail);
       alert(
-        "இராஜராஜ சோழன் அறிமுகம் கிடைக்கவில்லை\n(NPC intro audio not found)",
+        `${displayName} அறிமுகம் கிடைக்கவில்லை\n(NPC intro audio not found)`,
       );
       return;
     }
@@ -1293,30 +1244,42 @@ async function playNPCIntro() {
     npcAudio.volume = gameConfig.soundEnabled ? 0.8 : 0;
 
     // Show dialogue overlay while playing
-    showNPCDialogue();
+    showNPCDialogue(npcName);
+
+    const scriptBody = document.getElementById("scriptPanelBody");
+    let scriptText = NPC_SCRIPTS[npcName] || "";
+
+    const audioTimeUpdate = () => {
+      if (npcAudio.duration && scriptBody && scriptText) {
+        const ratio = npcAudio.currentTime / npcAudio.duration;
+        scriptBody.scrollTop = ratio * (scriptBody.scrollHeight - scriptBody.clientHeight);
+      }
+    };
+    npcAudio.addEventListener("timeupdate", audioTimeUpdate);
 
     npcAudio.play();
-    window.rajaModel.userData.hasPlayedIntro = true;
+    npc.userData.hasPlayedIntro = true;
 
-    console.log("🔊 Playing Raja Raja Cholan introduction");
+    console.log(`🔊 Playing ${npcName} introduction`);
 
     // Clean up blob URL when done
     npcAudio.onended = () => {
       URL.revokeObjectURL(audioUrl);
+      npcAudio.removeEventListener("timeupdate", audioTimeUpdate);
       hideNPCDialogue();
 
       // Enable voice chat after intro
       console.log("✅ Intro finished - Voice chat enabled!");
-      window.rajaModel.userData.voiceChatEnabled = true;
+      npc.userData.voiceChatEnabled = true;
 
       console.log("🎤 Voice chat status:", {
         canInteract: window.canInteract,
-        rajaModel: !!window.rajaModel,
-        voiceChatEnabled: window.rajaModel?.userData?.voiceChatEnabled,
+        npcName: npcName,
+        voiceChatEnabled: npc?.userData?.voiceChatEnabled,
       });
 
       // Show voice chat tooltip if still near NPC
-      if (isNearNPC) {
+      if (isNearNPC && activeNPC === npc) {
         showVoiceChatTooltip();
       }
 
@@ -1333,9 +1296,10 @@ async function playNPCIntro() {
   }
 }
 
-// Show NPC dialogue overlay
-function showNPCDialogue() {
+// Show NPC dialogue overlay and script panel
+function showNPCDialogue(npcName) {
   let dialogueDiv = document.getElementById("npcDialogue");
+  const displayName = NPC_DISPLAY_NAMES[npcName] || npcName;
 
   if (!dialogueDiv) {
     dialogueDiv = document.createElement("div");
@@ -1361,19 +1325,37 @@ function showNPCDialogue() {
   }
 
   dialogueDiv.innerHTML = `
-        <strong style="font-size: 28px;">இராஜராஜ சோழன்</strong><br>
+        <strong style="font-size: 28px;">${displayName}</strong><br>
         <span style="font-size: 16px; color: #B8860B; margin-top: 10px; display: block;">
             🔊 அறிமுகம் ஒலிக்கிறது...
         </span>
     `;
   dialogueDiv.style.display = "block";
+
+  // Show script panel with the NPC's script
+  const scriptText = NPC_SCRIPTS[npcName] || "";
+  if (scriptText) {
+    const scriptPanel = document.getElementById("scriptPanel");
+    const scriptHeader = document.getElementById("scriptPanelHeader");
+    const scriptBody = document.getElementById("scriptPanelBody");
+    if (scriptPanel && scriptBody) {
+      scriptHeader.textContent = displayName + " - செய்தி";
+      scriptBody.textContent = scriptText;
+      scriptBody.scrollTop = 0;
+      scriptPanel.classList.add("visible");
+    }
+  }
 }
 
-// Hide NPC dialogue overlay
+// Hide NPC dialogue overlay and script panel
 function hideNPCDialogue() {
   const dialogueDiv = document.getElementById("npcDialogue");
   if (dialogueDiv) {
     dialogueDiv.style.display = "none";
+  }
+  const scriptPanel = document.getElementById("scriptPanel");
+  if (scriptPanel) {
+    scriptPanel.classList.remove("visible");
   }
 }
 
@@ -1402,10 +1384,12 @@ function onDocumentClick(event) {
       if (
         object.userData &&
         object.userData.isNPC &&
-        object.userData.npcName === "raja_raja_cholan"
+        object.userData.npcName
       ) {
-        console.log("🎯 Clicked on Raja Raja Cholan!");
-        playNPCIntro();
+        const npcName = object.userData.npcName;
+        const displayName = NPC_DISPLAY_NAMES[npcName] || npcName;
+        console.log(`🎯 Clicked on ${displayName}!`);
+        playNPCIntro(npcName);
         return;
       }
       object = object.parent;
@@ -1430,12 +1414,8 @@ let eKeyPressed = false;
 window.addEventListener("keydown", (event) => {
   if (event.code === "KeyE" && !eKeyPressed) {
     eKeyPressed = true;
-    if (
-      canInteract &&
-      window.rajaModel &&
-      !window.rajaModel.userData.hasPlayedIntro
-    ) {
-      playNPCIntro();
+    if (canInteract && activeNPC && !activeNPC.userData.hasPlayedIntro) {
+      playNPCIntro(activeNPC.userData.npcName);
     }
   }
 });
@@ -1447,40 +1427,66 @@ window.addEventListener("keyup", (event) => {
 });
 
 // Check proximity to NPC and show tooltip
+let proxFrameCount = 0;
 function checkNPCProximity() {
-  // Use window.rajaModel (works for both nature and architecture worlds)
-  if (!window.rajaModel) return;
-
   const player = entityManager.Get("player");
   if (!player || !player._position) return;
 
-  const playerPos = player._position;
-  const npcPos = window.rajaModel.position;
-  const distance = playerPos.distanceTo(npcPos);
+  const npcList = window.npcObjects;
+  if (!npcList || !npcList.length) return;
 
-  // Player is within interaction range
-  if (distance < INTERACTION_DISTANCE) {
+  const playerPos = player._position;
+  let nearestNPC = null;
+  let nearestDist = INTERACTION_DISTANCE;
+
+  for (let i = 0; i < npcList.length; i++) {
+    const obj = npcList[i];
+    if (obj.userData?.isNPC && obj.userData?.npcName) {
+      const dist = playerPos.distanceTo(obj.position);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearestNPC = obj;
+      }
+    }
+  }
+
+  if (nearestNPC) {
+    if (activeNPC !== nearestNPC) {
+      activeNPC = nearestNPC;
+      window.activeNPC = nearestNPC;
+      isNearNPC = true;
+      canInteract = true;
+      window.canInteract = true;
+    }
+
     if (!isNearNPC) {
       isNearNPC = true;
       canInteract = true;
-      window.canInteract = true; // Update global
+      window.canInteract = true;
+    }
 
-      // Show appropriate tooltip based on state
-      if (!window.rajaModel.userData.hasPlayedIntro) {
-        // Show "Press E" tooltip
-        npcTooltip.classList.add("visible");
-        hideVoiceChatTooltip();
-      } else if (window.rajaModel.userData.voiceChatEnabled) {
-        // Show "Hold V" tooltip
-        npcTooltip.classList.remove("visible");
-        showVoiceChatTooltip();
-      }
+    proxFrameCount++;
+    if (proxFrameCount % 10 === 0) {
+      const displayName = NPC_DISPLAY_NAMES[nearestNPC.userData.npcName] || nearestNPC.userData.npcName;
+      document.getElementById('npcTooltipName').textContent = displayName;
+      document.getElementById('voiceTooltipName').textContent = displayName;
+      document.getElementById('conversationLogHeader').textContent = displayName + ' உடன் உரையாடல்';
+    }
+
+    if (!nearestNPC.userData.hasPlayedIntro) {
+      npcTooltip.classList.add("visible");
+      hideVoiceChatTooltip();
+    } else if (nearestNPC.userData.voiceChatEnabled) {
+      npcTooltip.classList.remove("visible");
+      showVoiceChatTooltip();
     }
   } else {
     if (isNearNPC) {
       isNearNPC = false;
       canInteract = false;
-      window.canInteract = false; // Update global
+      window.canInteract = false;
+      activeNPC = null;
+      window.activeNPC = null;
       npcTooltip.classList.remove("visible");
       hideVoiceChatTooltip();
     }
@@ -1495,8 +1501,8 @@ const voiceChatTooltip = document.getElementById("voiceChatTooltip");
 function showVoiceChatTooltip() {
   if (
     voiceChatTooltip &&
-    window.rajaModel &&
-    window.rajaModel.userData.voiceChatEnabled
+    activeNPC &&
+    activeNPC.userData.voiceChatEnabled
   ) {
     voiceChatTooltip.classList.add("visible");
   }
@@ -1589,14 +1595,6 @@ function animate() {
     }
   }
 
-  // Update raja mixer if it exists (both nature and architecture worlds)
-  if (rajaMixer) {
-    rajaMixer.update(timeElapsed);
-  }
-  if (window.rajaMixer) {
-    window.rajaMixer.update(timeElapsed);
-  }
-
   // Check proximity to NPC for tooltip
   checkNPCProximity();
 
@@ -1614,13 +1612,17 @@ window.addEventListener("resize", () => {
 console.log("Starting animation loop");
 animate();
 
-// Initial loading state - only for architecture world
-if (gameConfig.world === "architecture" && loadingStatus) {
-  loadingStatus.textContent = "Loading temple...";
-  updateLoadingProgress();
+// Initial loading state
+if (gameConfig.world === "architecture" || gameConfig.world === "water") {
+  // Show loading screen - temple/water world loads asynchronously
+  if (window.gameLoading) {
+    window.gameLoading.setStatus("Loading world...");
+  }
 } else if (gameConfig.world === "nature") {
-  // Nature world loads instantly
-  window.gameLoaded = true;
+  // Nature world loads chunks dynamically, mark ready
+  if (window.gameLoading) {
+    window.gameLoading.completeTask("world");
+  }
 }
 
 // Log what should be visible

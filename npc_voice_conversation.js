@@ -221,7 +221,9 @@ async function processTranscript(playerText) {
     // Show what player said
     showUserMessage(playerText);
     showConversationLog();
-    showProcessingIndicator("இராஜராஜ சோழன் சிந்திக்கிறார்...");
+    const activeNpc = getActiveNPC();
+    const thinkingName = (window.NPC_DISPLAY_NAMES && activeNpc?.userData?.npcName && window.NPC_DISPLAY_NAMES[activeNpc.userData.npcName]) || "இராஜராஜ சோழன்";
+    showProcessingIndicator(`${thinkingName} சிந்திக்கிறார்...`);
 
     // Step 1: Send to GPT-4 → get Tamil response
     console.log("📡 Sending to AI...");
@@ -279,12 +281,15 @@ async function processTranscript(playerText) {
 // ===== AI CHAT (GPT-4) =====
 
 async function sendToNPCChat(playerText) {
+  const activeNpc = getActiveNPC();
+  const npcId = activeNpc?.userData?.npcName || "raja_raja_cholan";
   const response = await fetch(`${BACKEND_URL}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       message: playerText,
-      response_language: "ta", // Always Tamil response
+      response_language: "ta",
+      npc_name: npcId,
     }),
   });
 
@@ -435,6 +440,10 @@ function showNPCMessage(text) {
   // Clean markdown before displaying
   const cleanedText = cleanTextForDisplay(text);
 
+  const activeNpc = getActiveNPC();
+  const npcId = activeNpc?.userData?.npcName || "raja_raja_cholan";
+  const displayName = (window.NPC_DISPLAY_NAMES && window.NPC_DISPLAY_NAMES[npcId]) || "இராஜராஜ சோழன்";
+
   const container = document.querySelector("#conversationLog .log-messages");
   if (container) {
     const msg = document.createElement("div");
@@ -444,7 +453,7 @@ function showNPCMessage(text) {
             <div class="message-content">
                 <div class="message-bubble">
                     <div class="message-header">
-                        <span class="message-name">இராஜராஜ சோழன்</span>
+                        <span class="message-name">${displayName}</span>
                         <span class="message-role">King</span>
                     </div>
                     <div class="message-text">${cleanedText}</div>
@@ -467,17 +476,20 @@ function showNPCMessage(text) {
 let originalCameraPosition = null;
 let originalCameraRotation = null;
 
-function moveCameraToConversationAngle() {
-  if (!window.camera || !window.rajaModel) return;
+function getActiveNPC() {
+  return window.activeNPC || window.rajaModel;
+}
 
-  // Save original position
+function moveCameraToConversationAngle() {
+  const npc = getActiveNPC();
+  if (!window.camera || !npc) return;
+
   originalCameraPosition = window.camera.position.clone();
   originalCameraRotation = window.camera.rotation.clone();
 
-  // Move to frontal conversation angle (like screenshot)
-  const rajaPos = window.rajaModel.position;
-  window.camera.position.set(rajaPos.x, rajaPos.y + 1.5, rajaPos.z + 3);
-  window.camera.lookAt(rajaPos.x, rajaPos.y + 1, rajaPos.z);
+  const npcPos = npc.position;
+  window.camera.position.set(npcPos.x, npcPos.y + 1.5, npcPos.z + 3);
+  window.camera.lookAt(npcPos.x, npcPos.y + 1, npcPos.z);
 
   console.log("📷 Camera moved to conversation angle");
 }
@@ -501,10 +513,11 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     event.stopPropagation();
 
+    const activeNpc = getActiveNPC();
     if (
       window.canInteract &&
-      window.rajaModel &&
-      window.rajaModel.userData.voiceChatEnabled
+      activeNpc &&
+      activeNpc.userData.voiceChatEnabled
     ) {
       // Toggle recording on/off
       if (isRecording) {

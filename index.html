@@ -507,6 +507,80 @@
             display: block;
         }
         
+        /* Script/Transcript Panel - Left Side */
+        #scriptPanel {
+            position: fixed;
+            left: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 420px;
+            max-height: 500px;
+            background: rgba(15, 23, 42, 0.92);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(100, 200, 255, 0.25);
+            border-radius: 16px;
+            padding: 0;
+            overflow: hidden;
+            display: none;
+            font-family: 'Noto Sans Tamil', Arial;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+            z-index: 1000;
+        }
+        #scriptPanel.visible {
+            display: flex;
+            flex-direction: column;
+        }
+        #scriptPanel .script-header {
+            background: linear-gradient(135deg, rgba(100, 200, 255, 0.12) 0%, rgba(50, 150, 200, 0.12) 100%);
+            padding: 14px 20px;
+            color: #7dd3fc;
+            font-weight: 700;
+            font-size: 14px;
+            text-align: left;
+            border-bottom: 1px solid rgba(100, 200, 255, 0.2);
+            flex-shrink: 0;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        #scriptPanel .script-header::before {
+            content: '📜';
+            font-size: 16px;
+        }
+        #scriptPanel .script-body {
+            flex: 1;
+            padding: 16px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            min-height: 200px;
+            max-height: 420px;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(100, 200, 255, 0.3) rgba(255, 255, 255, 0.05);
+            scroll-behavior: smooth;
+            background: transparent;
+            color: #e2e8f0;
+            font-size: 14px;
+            line-height: 1.8;
+            text-align: justify;
+        }
+        #scriptPanel .script-body::-webkit-scrollbar {
+            width: 6px;
+        }
+        #scriptPanel .script-body::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 3px;
+        }
+        #scriptPanel .script-body::-webkit-scrollbar-thumb {
+            background: rgba(100, 200, 255, 0.3);
+            border-radius: 3px;
+        }
+        #scriptPanel .script-body::-webkit-scrollbar-thumb:hover {
+            background: rgba(100, 200, 255, 0.5);
+        }
+        
         /* RPG-Style Dialogue HUD - Right Middle Position, Optimized */
         #conversationLog {
             position: fixed;
@@ -740,8 +814,8 @@
 <body>
     <!-- Loading Screen -->
     <div id="loadingScreen">
-        <div class="temple-icon">🛕</div>
-        <div class="loading-text">பெரிய கோவில் - Big Temple</div>
+        <div class="temple-icon" id="loadingIcon">🛕</div>
+        <div class="loading-text" id="loadingTitle">பெரிய கோவில் - Big Temple</div>
         <div class="loading-bar">
             <div class="loading-progress" id="loadingProgress"></div>
         </div>
@@ -803,7 +877,7 @@
         
         <!-- NPC Tooltip -->
         <div id="npcTooltip">
-            <div class="npc-name">இராஜராஜ சோழன்</div>
+            <div class="npc-name" id="npcTooltipName">இராஜராஜ சோழன்</div>
             <div class="key-prompt">
                 Press <span class="key-icon">E</span> to listen
             </div>
@@ -811,7 +885,7 @@
         
         <!-- Voice Chat Tooltip (shows after intro) -->
         <div id="voiceChatTooltip">
-            <div class="npc-name">இராஜராஜ சோழன்</div>
+            <div class="npc-name" id="voiceTooltipName">இராஜராஜ சோழன்</div>
             <div class="key-prompt">
                 <span class="key-icon">V</span> பேச <span style="opacity: 0.7; margin: 0 8px;">•</span> <span class="key-icon">X</span> நிறுத்து
             </div>
@@ -828,9 +902,15 @@
             Processing your message...
         </div>
         
+        <!-- Script/Transcript Panel - Left Side -->
+        <div id="scriptPanel">
+            <div class="script-header" id="scriptPanelHeader">செய்தி</div>
+            <div class="script-body" id="scriptPanelBody"></div>
+        </div>
+
         <!-- RPG Dialogue HUD - Glassmorphism Panel -->
         <div id="conversationLog">
-            <div class="log-header">இராஜராஜ சோழன் உடன் உரையாடல்</div>
+            <div class="log-header" id="conversationLogHeader">இராஜராஜ சோழன் உடன் உரையாடல்</div>
             <div class="log-messages">
                 <!-- Messages will be added here dynamically -->
             </div>
@@ -907,6 +987,8 @@
         }
     </script>
     
+    <!-- Loading Screen Manager (loads before main.js needs it) -->
+    <script src="GameLoading.js"></script>
     <!-- Voice Conversation System (loads before main.js needs it) -->
     <script src="npc_voice_conversation.js"></script>
 </body>

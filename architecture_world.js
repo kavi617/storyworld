@@ -1198,8 +1198,7 @@ export function initTempleWorld(scene) {
 
       console.log("✓ Traditional tiled floor added inside temple");
 
-      // Load Raja inside the temple at original position (moved to side to not block Shiva lingam view)
-      _LoadRajaNPC(scene);
+      // NPC cube placeholders are spawned from main.js
 
       console.log(
         "═══════════════════════════════════════════════════════════",
@@ -1225,9 +1224,8 @@ export function initTempleWorld(scene) {
         "═══════════════════════════════════════════════════════════",
       );
       // Update loading state
-      if (window.loadingState) {
-        window.loadingState.temple = true;
-        window.updateLoadingProgress();
+      if (window.gameLoading) {
+        window.gameLoading.completeTask("world");
       }
     },
     (xhr) => {
@@ -1249,6 +1247,9 @@ export function initTempleWorld(scene) {
       console.error(
         "═══════════════════════════════════════════════════════════",
       );
+      if (window.gameLoading) {
+        window.gameLoading.completeTask("world");
+      }
     },
   );
 
@@ -1326,77 +1327,9 @@ export function initTempleWorld(scene) {
   });
 
   console.log("✓ Decorative torches added (no light sources)");
-}
 
-/**
- * Load Raja Raja Cholan NPC inside temple
- */
-function _LoadRajaNPC(scene) {
-  const loader = new FBXLoader();
-  const modelPath =
-    "characters/raja raja cholan/rajarajacholan.fbx?v=" + Date.now();
-
-  console.log("🔵 Loading Raja Raja Cholan NPC...");
-
-  loader.load(
-    modelPath,
-    (fbx) => {
-      fbx.scale.setScalar(0.022);
-
-      // Inside the temple center area, welcoming visitors
-      // Manually place Raja on the temple floor (fixed Y) to ensure feet
-      // sit correctly regardless of FBX origin problems.
-      fbx.position.set(4, 40, -40.3);
-      fbx.rotation.y = Math.PI; // Face toward entrance/player
-
-      console.log("✅ Raja loaded at position:", fbx.position);
-      console.log("   Raja scale:", fbx.scale);
-
-      // Disable shadows for performance
-      fbx.traverse((c) => {
-        c.castShadow = false;
-        c.receiveShadow = false;
-        // Make sure materials are visible
-        if (c.material) {
-          c.material.visible = true;
-        }
-      });
-
-      scene.add(fbx);
-      console.log("✅ Raja added to scene");
-
-      // Update loading state
-      if (window.loadingState) {
-        window.loadingState.raja = true;
-        window.updateLoadingProgress();
-      }
-
-      // Store reference globally for voice system
-      window.rajaModel = fbx;
-      fbx.userData.isNPC = true;
-      fbx.userData.npcName = "raja_raja_cholan";
-      fbx.userData.hasPlayedIntro = false;
-
-      // Setup animations
-      if (fbx.animations && fbx.animations.length > 0) {
-        const rajaMixer = new THREE.AnimationMixer(fbx);
-        const idleClip = fbx.animations[0];
-        const idleAction = rajaMixer.clipAction(idleClip);
-        idleAction.play();
-
-        // Store mixer globally for animation updates
-        window.rajaMixer = rajaMixer;
-
-        console.log("✓ Raja Raja Cholan loaded inside temple with animations");
-      } else {
-        console.log("✓ Raja Raja Cholan loaded inside temple (no animations)");
-      }
-    },
-    undefined,
-    (error) => {
-      console.error("❌ Error loading Raja Raja Cholan:", error);
-    },
-  );
+  // Create NPC placeholder boxes at spawn positions
+  createNPCPlaceholders(scene);
 }
 
 /**
@@ -1475,14 +1408,30 @@ export function removeTempleWorld(scene) {
  * Get NPC spawn positions in temple world
  * @returns {Object} Object with NPC names as keys and {x, y, z} positions as values
  */
-export function getNPCSpawnPositions() {
-  return {
-    // Position Raja near temple entrance
-    raja_raja_cholan: { x: 0, y: 0, z: -30 },
+const NPC_SPAWN_POSITIONS = {
+  raja_raja_cholan: { x: 0, y: 1.5, z: -105 },
+  kulasekara_pandya: { x: 30, y: 1.5, z: -60 },
+  cheraman_perumal: { x: -30, y: 1.5, z: -60 },
+};
 
-    // Additional NPCs can be added here
-    priest: { x: -15, y: 0, z: 0 },
-    guard_east: { x: 20, y: 0, z: 0 },
-    guard_west: { x: -20, y: 0, z: 0 },
-  };
+export function getNPCSpawnPositions() {
+  return NPC_SPAWN_POSITIONS;
+}
+
+/**
+ * Create NPC placeholder boxes at spawn positions
+ */
+function createNPCPlaceholders(scene) {
+  const playerX = 0, playerZ = 95;
+  for (const [name, pos] of Object.entries(NPC_SPAWN_POSITIONS)) {
+    const mesh = new THREE.Object3D();
+    mesh.position.set(pos.x, pos.y, pos.z);
+    mesh.rotation.y = Math.atan2(playerX - pos.x, -(playerZ - pos.z));
+    mesh.name = name;
+    mesh.userData.isNPC = true;
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
+    scene.add(mesh);
+  }
+  console.log("NPC placeholders created for temple world");
 }

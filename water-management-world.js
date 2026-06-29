@@ -1268,6 +1268,9 @@ export function initWaterWorld(scene) {
     console.log('   • Explore terraced fields (2 levels) and visit the well');
     console.log('   • Walk across dam top to see water management system');
     console.log('═══════════════════════════════════════════════════════════');
+
+    // Create NPC placeholder boxes at spawn positions
+    createNPCPlaceholders(scene);
 }
 
 /**
@@ -1285,10 +1288,34 @@ export function getGroundMeshes() {
 }
 
 /**
- * Get NPC spawn positions (empty for grass world)
+ * Get NPC spawn positions
  */
+const NPC_SPAWN_POSITIONS = {
+    karikala_cholan: { x: 12, y: 2.5, z: 98 },
+    uthiyan_cheralathan: { x: -22, y: 1.5, z: 125 },
+    ariyan_nedunjeliyan_2: { x: -68, y: 2, z: 290 },
+};
+
 export function getNPCSpawnPositions() {
-    return [];
+    return NPC_SPAWN_POSITIONS;
+}
+
+/**
+ * Create NPC placeholder boxes at spawn positions
+ */
+function createNPCPlaceholders(scene) {
+    const playerX = -30, playerZ = 100;
+    for (const [name, pos] of Object.entries(NPC_SPAWN_POSITIONS)) {
+        const mesh = new THREE.Object3D();
+        mesh.position.set(pos.x, pos.y, pos.z);
+        mesh.rotation.y = Math.atan2(playerX - pos.x, -(playerZ - pos.z));
+        mesh.name = name;
+        mesh.userData.isNPC = true;
+        mesh.matrixAutoUpdate = false;
+        mesh.updateMatrix();
+        scene.add(mesh);
+    }
+    console.log("NPC placeholders created for water world");
 }
 
 /**
